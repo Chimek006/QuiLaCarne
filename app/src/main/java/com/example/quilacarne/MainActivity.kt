@@ -29,7 +29,12 @@ class MainActivity : ComponentActivity() {
                     }
 
                     composable("tables") {
-                        TablesScreen()
+                        TablesScreen(navController)
+                    }
+
+                    composable("table/{tableName}") { backStackEntry ->
+                        val tableName = backStackEntry.arguments?.getString("tableName") ?: "Stolik"
+                        TableDetailScreen(navController, tableName)
                     }
 
                 }
