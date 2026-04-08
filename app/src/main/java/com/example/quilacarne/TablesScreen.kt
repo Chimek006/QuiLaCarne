@@ -21,37 +21,36 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.example.quilacarne.ui.theme.*
+import com.example.quilacarne.ui.QuiLaCarneHeader
+import java.net.URLEncoder
 
 @Composable
 fun TablesScreen(navController: NavController) {
 
-    // Dane stolików
     val tables = listOf(
         TableData("Stolik I", "Wolny", Color(0xFF00D34A), Color.Black),
-        TableData("Stolik II", "#1010", white, Color.Black),
-        TableData("Stolik III", "Rezerwacja", orange, Color.Black),
-        TableData("Stolik IV", "Do sprzątania", darkGray, Color.White)
+        TableData("Stolik II", "#1010", Color.White, Color.Black),
+        TableData("Stolik III", "Rezerwacja", Color(0xFFFF9800), Color.Black),
+        TableData("Stolik IV", "Do sprzątania", Color(0xFF3A3A3A), Color.White)
     )
 
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFFFDFDFD))) {
 
-        // 1. Nagłówek ze strzałką i logo (showBack = true)
-        TopBar(navController = navController, showBack = true)
+        QuiLaCarneHeader(navController = navController, showBack = true)
 
-        // 2. Główna treść - zaczyna się pod nagłówkiem (140.dp to bezpieczny margines)
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = 140.dp, start = 16.dp, end = 16.dp)
+                .padding(top = 160.dp, start = 16.dp, end = 16.dp)
         ) {
             Text(
                 text = "Lista stolików",
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(bottom = 12.dp)
+                modifier = Modifier.padding(bottom = 12.dp),
+                color = Color.Black
             )
 
-            // Siatka stolików
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -64,10 +63,10 @@ fun TablesScreen(navController: NavController) {
                         status = table.status,
                         pillColor = table.pillColor,
                         pillTextColor = table.pillTextColor,
-                        topColor = topColor,     // Kolory z Twojego theme
-                        bottomColor = bottomColor, // Kolory z Twojego theme
+                        topColor = Color(0xFFE0E0E0),
+                        bottomColor = Color(0xFFF5F5F5),
                         onClick = { name ->
-                            val encoded = java.net.URLEncoder.encode(name, "utf-8")
+                            val encoded = URLEncoder.encode(name, "utf-8")
                             navController.navigate("table/$encoded")
                         }
                     )
@@ -77,7 +76,6 @@ fun TablesScreen(navController: NavController) {
     }
 }
 
-// Model danych stolika
 data class TableData(
     val name: String,
     val status: String,
@@ -85,7 +83,6 @@ data class TableData(
     val pillTextColor: Color
 )
 
-// Komponent pojedynczej karty stolika
 @Composable
 private fun TableCard(
     name: String,
@@ -102,13 +99,13 @@ private fun TableCard(
             .height(150.dp)
             .clickable { onClick(name) },
         shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(8.dp)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Góra karty (Nazwa)
             Box(
                 modifier = Modifier
-                    .weight(1f)
+                    .weight(1.2f)
                     .fillMaxWidth()
                     .background(topColor),
                 contentAlignment = Alignment.Center
@@ -130,14 +127,14 @@ private fun TableCard(
             ) {
                 Box(
                     modifier = Modifier
-                        .shadow(6.dp, RoundedCornerShape(8.dp))
+                        .shadow(4.dp, RoundedCornerShape(8.dp))
                         .clip(RoundedCornerShape(8.dp))
                         .background(pillColor)
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
                 ) {
                     Text(
                         text = status,
-                        fontSize = 14.sp,
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = pillTextColor
                     )

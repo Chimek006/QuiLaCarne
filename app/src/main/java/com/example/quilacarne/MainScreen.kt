@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.example.quilacarne.ui.theme.*
+import com.example.quilacarne.ui.QuiLaCarneHeader
 
 @Composable
 fun MainScreen(navController: NavController) {
@@ -31,9 +32,9 @@ fun MainScreen(navController: NavController) {
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            TopBar(navController = navController)
+            QuiLaCarneHeader(navController = navController, showBack = false)
 
-            Spacer(modifier = Modifier.height(40.dp))
+            Spacer(modifier = Modifier.height(30.dp))
 
             Text(
                 text = "Witaj w panelu!",

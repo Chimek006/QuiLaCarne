@@ -19,6 +19,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.quilacarne.ui.theme.*
+import com.example.quilacarne.ui.QuiLaCarneHeader
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -46,7 +47,11 @@ class MainActivity : ComponentActivity() {
 
                     composable("table/{tableName}") { backStackEntry ->
                         val tableName = backStackEntry.arguments?.getString("tableName") ?: "Stolik"
-                        TableDetailScreen(navController, tableName)
+                        TableDetailScreen(
+                            navController = navController,
+                            tableId = java.util.UUID.randomUUID(),
+                            tableName = tableName
+                        )
                     }
                 }
             }
@@ -61,7 +66,7 @@ fun PlaceholderScreen(navController: NavController, title: String) {
             .fillMaxSize()
             .background(Color.White)
     ) {
-        TopBar(navController = navController)
+        QuiLaCarneHeader(navController = navController, showBack = true)
 
         Column(
             modifier = Modifier

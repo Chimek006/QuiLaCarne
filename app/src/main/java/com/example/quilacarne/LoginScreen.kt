@@ -1,7 +1,6 @@
 package com.example.quilacarne
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -21,10 +20,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.example.quilacarne.ui.theme.*
+import com.example.quilacarne.ui.QuiLaCarneHeader
 
 @Composable
 fun LoginScreen(navController: NavController) {
-
     val loginState = remember { mutableStateOf("") }
     val passwordState = remember { mutableStateOf("") }
 
@@ -33,79 +32,11 @@ fun LoginScreen(navController: NavController) {
             .fillMaxSize()
             .background(Color.White)
     ) {
-
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.TopCenter),
+            modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(40.dp)
-                    .background(green)
-            )
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                Text(
-                    text = "Qui",
-                    fontSize = 44.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = red,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(end = 6.dp)
-                )
-                Text(
-                    text = "La",
-                    fontSize = 44.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = green,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(end = 6.dp)
-                )
-                Text(
-                    text = "Carne",
-                    fontSize = 44.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = green,
-                    textAlign = TextAlign.Center
-                )
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp)
-                    .padding(horizontal = 18.dp),
-                horizontalArrangement = Arrangement.Center
-            ) {
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        .background(green, shape = RoundedCornerShape(topStart = 4.dp, bottomStart = 4.dp))
-                )
-                Box(
-                    modifier = Modifier
-                        .weight(2f)
-                        .fillMaxHeight()
-                        .background(Color(0xFFF3F3F3))
-                )
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        .background(red, shape = RoundedCornerShape(topEnd = 4.dp, bottomEnd = 4.dp))
-                )
-            }
+            QuiLaCarneHeader(showBack = false)
 
             Spacer(modifier = Modifier.height(26.dp))
         }
@@ -119,7 +50,6 @@ fun LoginScreen(navController: NavController) {
                 .offset(y = (-8).dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -130,28 +60,14 @@ fun LoginScreen(navController: NavController) {
                 elevation = CardDefaults.cardElevation(20.dp)
             ) {
                 Column(
-                    modifier = Modifier
-                        .wrapContentHeight()
-                        .padding(28.dp),
+                    modifier = Modifier.wrapContentHeight().padding(28.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-
-                    LargeUnderlinedField(
-                        valueHint = "Login/email",
-                        value = loginState
-                    )
-
+                    LargeUnderlinedField(valueHint = "Login/email", value = loginState)
                     Spacer(modifier = Modifier.height(28.dp))
-
-                    LargeUnderlinedField(
-                        valueHint = "Hasło",
-                        value = passwordState,
-                        isPassword = true
-                    )
-
+                    LargeUnderlinedField(valueHint = "Hasło", value = passwordState, isPassword = true)
                     Spacer(modifier = Modifier.height(18.dp))
-
                     Text(
                         text = "O rejestrację lub w przypadku utraty hasła poproś o pomoc szefa sali",
                         fontSize = 12.sp,
@@ -173,33 +89,16 @@ fun LoginScreen(navController: NavController) {
                     .padding(horizontal = 6.dp)
                     .shadow(6.dp, RoundedCornerShape(14.dp))
             ) {
-                Text(
-                    text = "Zaloguj się",
-                    color = Color.White,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
+                Text("Zaloguj się", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
             }
         }
     }
 }
 
-
 @Composable
-private fun LargeUnderlinedField(
-    valueHint: String,
-    value: MutableState<String>,
-    isPassword: Boolean = false
-) {
-    val textStyle = TextStyle(
-        fontSize = 26.sp,
-        textAlign = TextAlign.Center
-    )
-
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.fillMaxWidth()
-    ) {
+private fun LargeUnderlinedField(valueHint: String, value: MutableState<String>, isPassword: Boolean = false) {
+    val textStyle = TextStyle(fontSize = 26.sp, textAlign = TextAlign.Center)
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
         BasicTextField(
             value = value.value,
             onValueChange = { value.value = it },
@@ -207,37 +106,16 @@ private fun LargeUnderlinedField(
             textStyle = textStyle,
             cursorBrush = SolidColor(Color.Black),
             visualTransformation = if (isPassword) PasswordVisualTransformation() else VisualTransformation.None,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 6.dp)
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp)
         ) { innerTextField ->
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 6.dp),
-                contentAlignment = Alignment.Center
-            ) {
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 if (value.value.isEmpty()) {
-                    Text(
-                        text = valueHint,
-                        fontSize = 26.sp,
-                        textAlign = TextAlign.Center,
-                        color = Color.Black,
-                        fontWeight = FontWeight.Medium
-                    )
+                    Text(text = valueHint, fontSize = 26.sp, color = Color.Black, fontWeight = FontWeight.Medium)
                 }
                 innerTextField()
             }
         }
-
         Spacer(modifier = Modifier.height(8.dp))
-
-        Divider(
-            thickness = 3.dp,
-            color = Color.Black,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp)
-        )
+        HorizontalDivider(thickness = 3.dp, color = Color.Black, modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp))
     }
 }
