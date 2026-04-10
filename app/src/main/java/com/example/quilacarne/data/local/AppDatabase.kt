@@ -5,6 +5,10 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import com.example.quilacarne.data.local.dao.*
 import com.example.quilacarne.data.local.entities.*
+import android.content.Context
+import androidx.room.Room
+import com.example.quilacarne.data.utils.SecurityUtil
+import net.sqlcipher.database.SupportFactory
 
 @Database(
     entities = [

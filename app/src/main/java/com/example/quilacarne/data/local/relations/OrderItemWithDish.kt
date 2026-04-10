@@ -1,4 +1,4 @@
-package com.example.quilacarne.data.local.relations // lub Twój pakiet entities
+package com.example.quilacarne.data.local.relations
 
 import androidx.room.Embedded
 import androidx.room.Relation

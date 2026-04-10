@@ -12,3 +12,4 @@ interface DishCategoryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(categories: List<DishCategoryEntity>)
 }
+
