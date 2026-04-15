@@ -18,12 +18,15 @@ import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.example.quilacarne.data.remote.network.RetrofitClient // DODANO IMPORT
 import com.example.quilacarne.ui.theme.*
 import com.example.quilacarne.ui.QuiLaCarneHeader
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        RetrofitClient.init(applicationContext)
 
         setContent {
             QuiLaCarneTheme {
