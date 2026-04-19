@@ -1,7 +1,6 @@
 package com.example.quilacarne.data.remote.services
 
-import com.example.quilacarne.data.remote.models.DictionaryResponse
-import com.example.quilacarne.data.remote.models.TablesResponse
+import com.example.quilacarne.data.remote.models.*
 import retrofit2.Response
 import retrofit2.http.GET
 import retrofit2.http.Header
@@ -13,10 +12,10 @@ interface TableService {
     suspend fun getTables(
         @Query("request.startTime") startTime: String,
         @Query("request.endTime") endTime: String
-    ): Response<TablesResponse>
+    ): Response<ApiResponse<TablesData>>
 
     @GET("api/tables/dictionary")
     suspend fun getStatusDictionary(
         @Header("Accept-Language") lang: String = "pl"
-    ): Response<DictionaryResponse>
+    ): Response<ApiResponse<List<StatusDictionaryDto>>>
 }

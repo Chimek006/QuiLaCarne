@@ -39,7 +39,6 @@ fun TablesScreen(navController: NavController) {
         try {
             val startTime = "2026-04-15T12:00:00.000Z"
             val endTime = "2026-04-15T13:00:00.000Z"
-
             val response = RetrofitClient.tableService.getTables(
                 startTime = startTime,
                 endTime = endTime
@@ -51,15 +50,13 @@ fun TablesScreen(navController: NavController) {
                     tables = body.data?.tables ?: emptyList()
                     errorMessage = null
                 } else {
-                    errorMessage = body?.message ?: "Błąd walidacji danych"
+                    errorMessage = body?.message ?: "Błąd danych"
                 }
             } else {
-                val errorDetail = response.errorBody()?.string()
-                Log.e("API_ERROR", "Kod: ${response.code()}, Body: $errorDetail")
-                errorMessage = "Błąd ${response.code()}: Sprawdź Logcat"
+                errorMessage = "Błąd API: ${response.code()}"
             }
         } catch (e: Exception) {
-            Log.e("API_ERROR", "Wyjątek: ${e.message}")
+            Log.e("API_ERROR", "Błąd: ${e.message}")
             errorMessage = "Błąd sieci: ${e.message}"
         } finally {
             isLoading = false
@@ -88,10 +85,7 @@ fun TablesScreen(navController: NavController) {
                 }
             } else if (errorMessage != null) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(text = errorMessage!!, color = Color.Red, textAlign = TextAlign.Center)
-                        Spacer(modifier = Modifier.height(8.dp))
-                    }
+                    Text(text = errorMessage!!, color = Color.Red, textAlign = TextAlign.Center)
                 }
             } else {
                 LazyVerticalGrid(
@@ -108,11 +102,12 @@ fun TablesScreen(navController: NavController) {
                             status = table.status,
                             pillColor = pillColor,
                             pillTextColor = textColor,
-                            topColor = Color(0xFFE0E0E0),
-                            bottomColor = Color(0xFFF5F5F5),
+                            topColor = darkGreen,
+                            bottomColor = green,
                             onClick = { name ->
-                                val encoded = URLEncoder.encode(name, "utf-8")
-                                navController.navigate("table/$encoded")
+                                val encodedName = URLEncoder.encode(name, "utf-8")
+                                val encodedStatus = URLEncoder.encode(table.status, "utf-8")
+                                navController.navigate("table/${table.token}/$encodedName/$encodedStatus")
                             }
                         )
                     }
@@ -124,7 +119,7 @@ fun TablesScreen(navController: NavController) {
 
 private fun getStatusColors(status: String): Pair<Color, Color> {
     return when (status.lowercase()) {
-        "free", "wolny" -> Color(0xFF00D34A) to Color.Black
+        "available", "wolny" -> Color(0xFF00D34A) to Color.Black
         "occupied", "zajęty", "1010" -> Color.White to Color.Black
         "reserved", "rezerwacja" -> Color(0xFFFF9800) to Color.Black
         "cleaning", "do sprzątania" -> Color(0xFF3A3A3A) to Color.White
@@ -148,7 +143,7 @@ private fun TableCard(
             .height(150.dp)
             .clickable { onClick(name) },
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
         elevation = CardDefaults.cardElevation(8.dp)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -163,7 +158,7 @@ private fun TableCard(
                     text = name,
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color.Black
+                    color = Color.White
                 )
             }
 

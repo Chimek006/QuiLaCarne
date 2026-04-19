@@ -7,15 +7,6 @@ data class LoginRequest(
     @SerializedName("password") val password: String
 )
 
-data class LoginResponse(
-    @SerializedName("isSuccess") val isSuccess: Boolean,
-    @SerializedName("data") val data: LoginData?,
-    @SerializedName("message") val message: String?,
-    @SerializedName("statusCode") val statusCode: Int,
-    @SerializedName("errorMessages") val errorMessages: List<String>?,
-    @SerializedName("success") val success: Boolean
-)
-
 data class LoginData(
     @SerializedName("token") val token: String,
     @SerializedName("refreshToken") val refreshToken: String,
@@ -24,5 +15,10 @@ data class LoginData(
 )
 
 data class RefreshRequest(
+    @SerializedName("refreshToken") val refreshToken: String
+)
+
+data class TokenResponse(
+    @SerializedName("token") val token: String,
     @SerializedName("refreshToken") val refreshToken: String
 )

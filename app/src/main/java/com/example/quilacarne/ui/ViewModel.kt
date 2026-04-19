@@ -4,7 +4,6 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.quilacarne.data.local.DatabaseProvider
-import com.example.quilacarne.data.local.entities.OrderEntity
 import com.example.quilacarne.data.local.entities.OrderItemEntity
 import com.example.quilacarne.data.local.entities.RestaurantTableEntity
 import kotlinx.coroutines.flow.MutableStateFlow

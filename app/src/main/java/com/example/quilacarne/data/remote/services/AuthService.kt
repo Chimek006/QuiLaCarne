@@ -1,8 +1,6 @@
 package com.example.quilacarne.data.remote.services
 
-import com.example.quilacarne.data.remote.models.LoginRequest
-import com.example.quilacarne.data.remote.models.LoginResponse
-import com.example.quilacarne.data.remote.models.RefreshRequest
+import com.example.quilacarne.data.remote.models.*
 import retrofit2.Call
 import retrofit2.Response
 import retrofit2.http.Body
@@ -13,10 +11,10 @@ interface AuthService {
     @POST("api/auth/login")
     suspend fun login(
         @Body request: LoginRequest
-    ): Response<LoginResponse>
+    ): Response<ApiResponse<LoginData>>
 
     @POST("api/auth/refresh")
     fun refresh(
         @Body request: RefreshRequest
-    ): Call<LoginResponse>
+    ): Call<ApiResponse<TokenResponse>>
 }

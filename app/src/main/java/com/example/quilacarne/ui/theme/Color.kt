@@ -3,6 +3,8 @@ package com.example.quilacarne.ui.theme
 import androidx.compose.ui.graphics.Color
 
 val green = Color(0xFF1FA000)
+
+val darkGreen = Color(0xFF167000)
 val topColor = Color(0xFF149600)
 val bottomColor = Color(0xFF00C800)
 val orange = Color(0xFFFF8A00)
