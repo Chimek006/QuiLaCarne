@@ -33,7 +33,7 @@ fun TablesScreen(navController: NavController, viewModel: TablesViewModel) {
     val tables by viewModel.tables.collectAsState()
     val isSyncComplete by viewModel.isSyncComplete.collectAsState()
 
-    val isLoading = !isSyncComplete && tables.isEmpty()
+    val isLoading = tables.isEmpty()
 
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFFFDFDFD))) {
         QuiLaCarneHeader(navController = navController, showBack = true)

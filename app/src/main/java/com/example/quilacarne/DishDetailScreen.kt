@@ -104,7 +104,7 @@ fun DishDetailScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        if (ingredients.isEmpty()) {
+                        if (ingredients.isNullOrEmpty()) {
                             Text("To danie nie ma określonych składników.", color = Color.Gray)
                         } else {
                             Text(

@@ -31,17 +31,18 @@ class TablesViewModel(private val repository: SyncRepository) : ViewModel() {
         viewModelScope.launch {
             try {
                 val result = repository.syncTables()
+
                 result.onSuccess {
                     Log.d("TABLES_SYNC", "Synchronizacja stolików zakończona")
-                    _isSyncComplete.value = true
                 }
+
                 result.onFailure { error ->
                     Log.e("TABLES_SYNC", "Błąd sync: ${error.message}")
-                    _isSyncComplete.value = false
                 }
             } catch (e: Exception) {
                 Log.e("TABLES_SYNC", "Wyjątek: ${e.message}")
-                _isSyncComplete.value = false
+            } finally {
+                _isSyncComplete.value = true
             }
         }
     }

@@ -88,118 +88,134 @@ class SyncRepository(private val database: AppDatabase) {
         }
     }
 
-    suspend fun syncMenu(): Result<Unit> {
-        return try {
-            val now = getCurrentTimestamp()
-            val serverIp = "192.168.100.12"
+    suspend fun syncMenu(): Result<Unit> = runCatching {
+        val now = getCurrentTimestamp()
+        val serverIp = "192.168.100.12"
 
-            val catResponse = dishService.getCategories(lang = "pl")
-            val categoriesDto: List<CategoryDto> =
-                catResponse.body()?.data?.categories.orEmpty()
+        val catResponse = dishService.getCategories(lang = "pl")
+        val categoriesDto = catResponse.body()?.data?.categories.orEmpty()
 
-            val categoryEntities = categoriesDto.map { catDto: CategoryDto ->
-                DishCategoryEntity(
-                    id = catDto.token.toStableUUID(),
-                    namePl = catDto.name,
-                    nameEn = catDto.name,
+        val categoryEntities = categoriesDto.map { catDto ->
+            DishCategoryEntity(
+                id = catDto.token.toStableUUID(),
+                namePl = catDto.name,
+                nameEn = catDto.name,
+                createdAt = now,
+                updatedAt = now
+            )
+        }
+
+        val allIngredientsDto = mutableListOf<IngredientSyncDto>()
+        var page = 1
+
+        while (true) {
+            val response = dishService.syncIngredients(page = page)
+            if (!response.isSuccessful) break
+
+            val items = response.body()?.data?.items.orEmpty()
+            if (items.isEmpty()) break
+
+            allIngredientsDto.addAll(items)
+            page++
+        }
+
+        val globalIngredientEntities = mutableListOf<IngredientEntity>()
+        val allergenEntities = mutableListOf<AllergenEntity>()
+        val ingredientAllergenLinks = mutableListOf<IngredientAllergenEntity>()
+
+        allIngredientsDto.forEach { ingDto ->
+            val ingredientId = ingDto.token.toStableUUID()
+
+            globalIngredientEntities.add(
+                IngredientEntity(
+                    id = ingredientId,
+                    namePl = ingDto.namePl,
+                    nameEn = ingDto.nameEn,
                     createdAt = now,
                     updatedAt = now
                 )
-            }
+            )
 
-            val ingSyncResponse = dishService.syncIngredients(page = 1)
-            val globalIngredientEntities = mutableListOf<IngredientEntity>()
-            val allergenEntities = mutableListOf<AllergenEntity>()
-            val ingredientAllergenLinks = mutableListOf<IngredientAllergenEntity>()
+            ingDto.allergenTokens.orEmpty().forEach { allergenToken ->
+                val allergenId = allergenToken.toStableUUID()
 
-            if (ingSyncResponse.isSuccessful) {
-                val ingredientsDto: List<IngredientSyncDto> =
-                    ingSyncResponse.body()?.data?.items.orEmpty()
-
-                ingredientsDto.forEach { ingDto: IngredientSyncDto ->
-                    val ingredientId = ingDto.token.toStableUUID()
-                    globalIngredientEntities.add(
-                        IngredientEntity(
-                            id = ingredientId,
-                            namePl = ingDto.namePl,
-                            nameEn = ingDto.nameEn,
-                            createdAt = now,
-                            updatedAt = now
-                        )
-                    )
-
-                    ingDto.allergenTokens.orEmpty().forEach { allergenToken: String ->
-                        val allergenId = allergenToken.toStableUUID()
-                        allergenEntities.add(
-                            AllergenEntity(
-                                id = allergenId,
-                                namePl = "Alergen $allergenToken",
-                                nameEn = "Allergen $allergenToken",
-                                createdAt = now,
-                                updatedAt = now
-                            )
-                        )
-                        ingredientAllergenLinks.add(
-                            IngredientAllergenEntity(
-                                ingredientId = ingredientId,
-                                allergenId = allergenId,
-                                createdAt = now,
-                                updatedAt = now
-                            )
-                        )
-                    }
-                }
-            }
-
-            val dishResponse = dishService.syncDishes(page = 1)
-            val dishesDto: List<DishSyncDto> = dishResponse.body()?.data?.items.orEmpty()
-            val dishEntities = mutableListOf<DishEntity>()
-            val compositionEntities = mutableListOf<DishCompositionEntity>()
-
-            dishesDto.forEach { dto: DishSyncDto ->
-                val dishId = dto.token.toStableUUID()
-                val matchingCategory = categoryEntities.find {
-                    it.namePl.equals(dto.categoryName, ignoreCase = true)
-                }
-
-                dishEntities.add(
-                    DishEntity(
-                        id = dishId,
-                        categoryId = matchingCategory?.id,
-                        name = dto.name,
-                        price = dto.price,
-                        isAvailable = dto.isActive,
-                        imageUrl = dto.imageUrl?.replace("localhost", serverIp),
+                allergenEntities.add(
+                    AllergenEntity(
+                        id = allergenId,
+                        namePl = "Alergen $allergenToken",
+                        nameEn = "Allergen $allergenToken",
                         createdAt = now,
                         updatedAt = now
                     )
                 )
 
-                dto.ingredients.orEmpty().forEach { ingDto ->
-                    compositionEntities.add(
-                        DishCompositionEntity(
-                            dishId = dishId,
-                            ingredientId = ingDto.token.toStableUUID(),
-                            createdAt = now,
-                            updatedAt = now
-                        )
+                ingredientAllergenLinks.add(
+                    IngredientAllergenEntity(
+                        ingredientId = ingredientId,
+                        allergenId = allergenId,
+                        createdAt = now,
+                        updatedAt = now
                     )
-                }
+                )
+            }
+        }
+
+        val allDishesDto = mutableListOf<DishSyncDto>()
+        page = 1
+
+        while (true) {
+            val response = dishService.syncDishes(page = page)
+            if (!response.isSuccessful) break
+
+            val items = response.body()?.data?.items.orEmpty()
+            if (items.isEmpty()) break
+
+            allDishesDto.addAll(items)
+            page++
+        }
+
+        val dishEntities = mutableListOf<DishEntity>()
+        val compositionEntities = mutableListOf<DishCompositionEntity>()
+
+        allDishesDto.forEach { dto ->
+            val dishId = dto.token.toStableUUID()
+
+            val matchingCategory = categoryEntities.find {
+                it.namePl.equals(dto.categoryName, ignoreCase = true)
             }
 
-            database.withTransaction {
-                database.dishCategoryDao().insertAll(categoryEntities)
-                database.ingredientDao().insertIngredients(globalIngredientEntities)
-                database.ingredientDao().insertAllergens(allergenEntities)
-                database.ingredientDao().insertIngredientAllergens(ingredientAllergenLinks)
-                database.dishDao().insertDishes(dishEntities)
-                database.dishDao().insertCompositions(compositionEntities)
-            }
+            dishEntities.add(
+                DishEntity(
+                    id = dishId,
+                    categoryId = matchingCategory?.id,
+                    name = dto.name,
+                    price = dto.price,
+                    isAvailable = dto.isActive,
+                    imageUrl = dto.imageUrl?.replace("localhost", serverIp),
+                    createdAt = now,
+                    updatedAt = now
+                )
+            )
 
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Log.e("SYNC_ERROR", "Błąd menu: ", e)
-            Result.failure(e)
+            dto.ingredients.orEmpty().forEach { ingDto ->
+                compositionEntities.add(
+                    DishCompositionEntity(
+                        dishId = dishId,
+                        ingredientId = ingDto.token.toStableUUID(),
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                )
+            }
+        }
+
+        database.withTransaction {
+            database.dishCategoryDao().insertAll(categoryEntities)
+            database.ingredientDao().insertIngredients(globalIngredientEntities)
+            database.ingredientDao().insertAllergens(allergenEntities)
+            database.ingredientDao().insertIngredientAllergens(ingredientAllergenLinks)
+            database.dishDao().insertDishes(dishEntities)
+            database.dishDao().insertCompositions(compositionEntities)
         }
     }
 }
