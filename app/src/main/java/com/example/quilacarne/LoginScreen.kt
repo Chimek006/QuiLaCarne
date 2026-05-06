@@ -20,27 +20,29 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.quilacarne.data.local.TokenManager
 import com.example.quilacarne.data.remote.models.LoginRequest
 import com.example.quilacarne.data.remote.network.RetrofitClient
 import com.example.quilacarne.ui.QuiLaCarneHeader
 import com.example.quilacarne.ui.theme.green
 import com.example.quilacarne.ui.theme.lightGray
+import com.example.quilacarne.ui.viewmodels.LoginViewModel
+import com.example.quilacarne.ui.viewmodels.LoginState
 import kotlinx.coroutines.launch
 import org.json.JSONObject
-import androidx.lifecycle.viewmodel.compose.viewModel
 
 @Composable
 fun LoginScreen(navController: NavController) {
     val context = LocalContext.current
-    val viewModel = viewModel<LoginViewModel>()
+    val loginViewModel: LoginViewModel = viewModel()
 
     var login by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
 
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-    val loginState by viewModel.loginState.collectAsState()
+    val loginState by loginViewModel.loginState.collectAsState()
 
     LaunchedEffect(loginState) {
         when (loginState) {
@@ -131,7 +133,7 @@ fun LoginScreen(navController: NavController) {
                                 return@Button
                             }
 
-                            viewModel.login(login, password)
+                            loginViewModel.login(login, password)
                         },
                         enabled = loginState !is LoginState.Loading,
                         colors = ButtonDefaults.buttonColors(

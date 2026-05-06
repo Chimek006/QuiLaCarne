@@ -1,6 +1,7 @@
 package com.example.quilacarne.data.local
 
 import android.content.Context
+import android.util.Log
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
@@ -48,6 +49,7 @@ abstract class AppDatabase : RoomDatabase() {
 
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
+                // Czyszczenie starych plików z błędną wersją
                 try {
                     context.deleteDatabase("quilacarne_db-old")
                     context.deleteDatabase("quilacarne_db-v")
@@ -56,6 +58,7 @@ abstract class AppDatabase : RoomDatabase() {
                 }
 
                 val passphrase = SecurityUtil.getDatabasePassword(context)
+                Log.d("DB_PASSWORD", String(passphrase))
                 val factory = SupportFactory(passphrase)
 
                 val instance = Room.databaseBuilder(

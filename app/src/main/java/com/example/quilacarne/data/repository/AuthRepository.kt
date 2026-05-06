@@ -10,6 +10,7 @@ import java.util.UUID
 class AuthRepository(private val database: AppDatabase) {
 
     private val userDao = database.userDao()
+
     suspend fun loginOnline(username: String, password: String): Result<String> {
         return try {
             val request = LoginRequest(username = username.trim(), password = password)
@@ -59,7 +60,11 @@ class AuthRepository(private val database: AppDatabase) {
     }
 
     suspend fun loginHybrid(username: String, password: String): Result<String> {
-        return loginOnline(username, password).getOrElse {
+        val onlineResult = loginOnline(username, password)
+
+        return if (onlineResult.isSuccess) {
+            onlineResult
+        } else {
             Log.w("AUTH_REPO", "API niedostępne, próbuję offline...")
             loginOffline(username, password)
         }
