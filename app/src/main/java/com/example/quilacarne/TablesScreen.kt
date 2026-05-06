@@ -31,8 +31,9 @@ import java.net.URLEncoder
 @Composable
 fun TablesScreen(navController: NavController, viewModel: TablesViewModel) {
     val tables by viewModel.tables.collectAsState()
+    val isSyncComplete by viewModel.isSyncComplete.collectAsState()
 
-    val isLoading = tables.isEmpty()
+    val isLoading = !isSyncComplete && tables.isEmpty()
 
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFFFDFDFD))) {
         QuiLaCarneHeader(navController = navController, showBack = true)
@@ -53,6 +54,13 @@ fun TablesScreen(navController: NavController, viewModel: TablesViewModel) {
             if (isLoading) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = green)
+                }
+            } else if (tables.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("Brak stolików do wyświetlenia", color = Color.Gray)
                 }
             } else {
                 LazyVerticalGrid(

@@ -28,26 +28,39 @@ import com.example.quilacarne.ui.theme.green
 import com.example.quilacarne.ui.theme.lightGray
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+import androidx.lifecycle.viewmodel.compose.viewModel
 
 @Composable
 fun LoginScreen(navController: NavController) {
     val context = LocalContext.current
-    val tokenManager = remember { TokenManager(context.applicationContext) }
+    val viewModel = viewModel<LoginViewModel>()
 
     var login by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
 
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-    var isLoading by remember { mutableStateOf(false) }
+    val loginState by viewModel.loginState.collectAsState()
+
+    LaunchedEffect(loginState) {
+        when (loginState) {
+            is LoginState.Success -> {
+                navController.navigate("sync") {
+                    popUpTo("login") { inclusive = true }
+                }
+            }
+            is LoginState.Error -> {
+                snackbarHostState.showSnackbar((loginState as LoginState.Error).message)
+            }
+            else -> {}
+        }
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = Color.White
     ) { padding ->
-        Box(
-            modifier = Modifier.fillMaxSize()
-        ) {
+        Box(modifier = Modifier.fillMaxSize()) {
             Column(
                 modifier = Modifier.fillMaxSize(),
                 horizontalAlignment = Alignment.CenterHorizontally
@@ -81,7 +94,8 @@ fun LoginScreen(navController: NavController) {
                             LargeUnderlinedField(
                                 valueHint = "Login/email",
                                 value = login,
-                                onValueChange = { login = it }
+                                onValueChange = { login = it },
+                                enabled = loginState !is LoginState.Loading
                             )
 
                             Spacer(modifier = Modifier.height(28.dp))
@@ -90,13 +104,14 @@ fun LoginScreen(navController: NavController) {
                                 valueHint = "Hasło",
                                 value = password,
                                 onValueChange = { password = it },
-                                isPassword = true
+                                isPassword = true,
+                                enabled = loginState !is LoginState.Loading
                             )
 
                             Spacer(modifier = Modifier.height(18.dp))
 
                             Text(
-                                text = "O rejestrację lub w przypadku utraty hasła poproś o pomoc szefa sali",
+                                text = "Brak dostępu? Spróbuj login offline jeśli masz zarejestrowany",
                                 fontSize = 12.sp,
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier.padding(horizontal = 8.dp),
@@ -116,85 +131,28 @@ fun LoginScreen(navController: NavController) {
                                 return@Button
                             }
 
-                            isLoading = true
-                            scope.launch {
-                                try {
-                                    val request = LoginRequest(
-                                        username = login.trim(),
-                                        password = password
-                                    )
-
-                                    val response = RetrofitClient.authService.login(request)
-
-                                    if (response.isSuccessful && response.body()?.isSuccess == true) {
-                                        val data = response.body()?.data
-
-                                        if (data != null) {
-                                            tokenManager.saveTokens(
-                                                accessToken = data.token,
-                                                refreshToken = data.refreshToken
-                                            )
-
-                                            navController.navigate("sync") {
-                                                popUpTo("login") { inclusive = true }
-                                            }
-                                        } else {
-                                            snackbarHostState.showSnackbar("Brak tokenów w odpowiedzi serwera")
-                                        }
-                                    } else {
-                                        var errorMsg = "Błędne dane logowania"
-                                        val errorBodyString = response.errorBody()?.string()
-
-                                        if (!errorBodyString.isNullOrEmpty()) {
-                                            try {
-                                                val jsonObject = JSONObject(errorBodyString)
-                                                if (jsonObject.has("message")) {
-                                                    errorMsg = jsonObject.getString("message")
-                                                }
-                                            } catch (e: Exception) {
-                                                Log.e("LoginError", "Nie udało się sparsować JSONa z błędem", e)
-                                            }
-                                        }
-
-                                        snackbarHostState.showSnackbar(errorMsg)
-                                    }
-                                } catch (e: Exception) {
-                                    Log.e("LoginError", "Błąd sieci: ${e.message}", e)
-                                    snackbarHostState.showSnackbar("Błąd połączenia z serwerem")
-                                } finally {
-                                    isLoading = false
-                                }
-                            }
+                            viewModel.login(login, password)
                         },
-                        enabled = !isLoading,
+                        enabled = loginState !is LoginState.Loading,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = green,
-                            disabledContainerColor = green,
-                            contentColor = Color.White,
-                            disabledContentColor = Color.White
+                            disabledContainerColor = green
                         ),
                         shape = RoundedCornerShape(14.dp),
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(56.dp)
-                            .padding(horizontal = 6.dp)
                             .shadow(6.dp, RoundedCornerShape(14.dp))
                     ) {
-                        if (isLoading) {
+                        if (loginState is LoginState.Loading) {
                             CircularProgressIndicator(
                                 color = Color.White,
                                 modifier = Modifier.height(24.dp)
                             )
                         } else {
-                            Text(
-                                "Zaloguj się",
-                                color = Color.White,
-                                fontSize = 24.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                            Text("Zaloguj się", color = Color.White, fontSize = 24.sp)
                         }
                     }
-                    Spacer(modifier = Modifier.height(40.dp))
                 }
             }
         }
@@ -206,7 +164,8 @@ private fun LargeUnderlinedField(
     valueHint: String,
     value: String,
     onValueChange: (String) -> Unit,
-    isPassword: Boolean = false
+    isPassword: Boolean = false,
+    enabled: Boolean = true
 ) {
     val textStyle = TextStyle(
         fontSize = 26.sp,
@@ -224,11 +183,8 @@ private fun LargeUnderlinedField(
             singleLine = true,
             textStyle = textStyle,
             cursorBrush = SolidColor(Color.Black),
-            visualTransformation = if (isPassword) {
-                PasswordVisualTransformation()
-            } else {
-                VisualTransformation.None
-            },
+            enabled = enabled,
+            visualTransformation = if (isPassword) PasswordVisualTransformation() else VisualTransformation.None,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 6.dp)

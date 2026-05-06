@@ -48,8 +48,14 @@ abstract class AppDatabase : RoomDatabase() {
 
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
+                try {
+                    context.deleteDatabase("quilacarne_db-old")
+                    context.deleteDatabase("quilacarne_db-v")
+                } catch (e: Exception) {
+                    Log.w("DB_CLEANUP", "Nie udało się wyczyścić starych baz")
+                }
+
                 val passphrase = SecurityUtil.getDatabasePassword(context)
-                android.util.Log.d("DB_PASSWORD", String(passphrase))
                 val factory = SupportFactory(passphrase)
 
                 val instance = Room.databaseBuilder(

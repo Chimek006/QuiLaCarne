@@ -76,7 +76,9 @@ class SyncRepository(private val database: AppDatabase) {
                     dao.clearAll()
                     dao.insertTables(allTablesEntities)
                 }
-                Log.d("SYNC", "Zapisano ${allTablesEntities.size} stolików.")
+                Log.d("SYNC", "✓ Zapisano ${allTablesEntities.size} stolików do bazy")
+            } else {
+                Log.w("SYNC", "UWAGA: Brak stolików z API!")
             }
 
             Result.success(Unit)
