@@ -10,7 +10,6 @@ import com.example.quilacarne.data.local.entities.DishEntity
 import com.example.quilacarne.data.local.entities.IngredientAllergenEntity
 import com.example.quilacarne.data.local.entities.IngredientEntity
 import com.example.quilacarne.data.local.entities.RestaurantTableEntity
-import com.example.quilacarne.data.remote.models.CategoryDto
 import com.example.quilacarne.data.remote.models.DishSyncDto
 import com.example.quilacarne.data.remote.models.IngredientSyncDto
 import com.example.quilacarne.data.remote.models.TableDto
@@ -93,7 +92,7 @@ class SyncRepository(private val database: AppDatabase) {
         val serverIp = "192.168.100.12"
 
         val catResponse = dishService.getCategories(lang = "pl")
-        val categoriesDto = catResponse.body()?.data?.categories.orEmpty()
+        val categoriesDto = catResponse.body()?.data?.item.orEmpty()
 
         val categoryEntities = categoriesDto.map { catDto ->
             DishCategoryEntity(
@@ -178,30 +177,32 @@ class SyncRepository(private val database: AppDatabase) {
         val compositionEntities = mutableListOf<DishCompositionEntity>()
 
         allDishesDto.forEach { dto ->
+
             val dishId = dto.token.toStableUUID()
 
-            val matchingCategory = categoryEntities.find {
-                it.namePl.equals(dto.categoryName, ignoreCase = true)
-            }
+            val categoryId = dto.categoryToken
+                ?.takeIf { it.isNotBlank() }
+                ?.toStableUUID()
 
             dishEntities.add(
                 DishEntity(
                     id = dishId,
-                    categoryId = matchingCategory?.id,
+                    categoryId = categoryId,
                     name = dto.name,
                     price = dto.price,
-                    isAvailable = dto.isActive,
+                    isAvailable = dto.isAvailable,
                     imageUrl = dto.imageUrl?.replace("localhost", serverIp),
                     createdAt = now,
                     updatedAt = now
                 )
             )
 
-            dto.ingredients.orEmpty().forEach { ingDto ->
+            dto.ingredientTokens.orEmpty().forEach { ingredientToken ->
+
                 compositionEntities.add(
                     DishCompositionEntity(
                         dishId = dishId,
-                        ingredientId = ingDto.token.toStableUUID(),
+                        ingredientId = ingredientToken.toStableUUID(),
                         createdAt = now,
                         updatedAt = now
                     )

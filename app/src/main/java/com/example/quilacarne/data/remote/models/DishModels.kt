@@ -7,31 +7,25 @@ data class DishSyncDto(
     @SerializedName("name") val name: String,
     @SerializedName("price") val price: Int,
     @SerializedName("imageUrl") val imageUrl: String?,
-    @SerializedName("categoryName") val categoryName: String,
-    @SerializedName("active") val isActive: Boolean,
-    @SerializedName("ingredients") val ingredients: List<IngredientDto>
-)
-
-data class IngredientDto(
-    @SerializedName("token") val token: String,
-    @SerializedName("name") val name: String,
-    @SerializedName("allergens") val allergens: List<String>
-)
-
-data class CategoryDto(
-    @SerializedName("token") val token: String,
-    @SerializedName("name") val name: String
-)
-
-data class CategoriesData(
-    @SerializedName("categories") val categories: List<CategoryDto>
+    @SerializedName("categoryToken") val categoryToken: String?,
+    @SerializedName("ingredientTokens") val ingredientTokens: List<String>?,
+    @SerializedName("isAvailable") val isAvailable: Boolean
 )
 
 data class IngredientSyncDto(
     @SerializedName("token") val token: String,
     @SerializedName("namePl") val namePl: String,
     @SerializedName("nameEn") val nameEn: String,
-    @SerializedName("allergenTokens") val allergenTokens: List<String>
+    @SerializedName("allergenTokens") val allergenTokens: List<String>?
+)
+
+data class CategoryDto(
+    @SerializedName("token")val token: String,
+    @SerializedName("name") val name: String
+)
+
+data class CategoriesData(
+    @SerializedName("item") val item: List<CategoryDto>
 )
 
 data class AllergenDto(
@@ -40,5 +34,5 @@ data class AllergenDto(
 )
 
 data class AllergenDictionaryData(
-    @SerializedName("allergens") val allergens: List<AllergenDto>
+    @SerializedName("item") val item: List<AllergenDto>
 )
