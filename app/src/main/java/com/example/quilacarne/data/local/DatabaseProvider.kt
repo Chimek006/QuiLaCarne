@@ -13,6 +13,7 @@ object DatabaseProvider {
         return INSTANCE ?: synchronized(this) {
 
             val passphrase = SecurityUtil.getDatabasePassword(context)
+            android.util.Log.d("MOJE_HASLO", passphrase.decodeToString())
             val factory = SupportFactory(passphrase)
 
             val instance = Room.databaseBuilder(

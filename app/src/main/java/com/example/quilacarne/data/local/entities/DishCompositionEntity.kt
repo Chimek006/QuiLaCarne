@@ -17,8 +17,8 @@ import androidx.room.ForeignKey
 data class DishCompositionEntity(
     @ColumnInfo(name = "dish_id") val dishId: UUID,
     @ColumnInfo(name = "ingredient_id") val ingredientId: UUID,
-    val quantity: String?,
-    @ColumnInfo(name = "created_at") val createdAt: String,
-    @ColumnInfo(name = "updated_at") val updatedAt: String,
+    val quantity: String? = null,
+    @ColumnInfo(name = "created_at") val createdAt: String = "",
+    @ColumnInfo(name = "updated_at") val updatedAt: String = "",
     @ColumnInfo(name = "deleted_at") val deletedAt: String? = null
 )

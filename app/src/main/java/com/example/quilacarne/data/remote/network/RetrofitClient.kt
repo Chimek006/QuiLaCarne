@@ -10,6 +10,7 @@ import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import com.example.quilacarne.data.remote.services.DishService
 
 object RetrofitClient {
     private val BASE_URL = BuildConfig.BASE_URL
@@ -57,5 +58,9 @@ object RetrofitClient {
 
     val orderService: OrderService by lazy {
         createRetrofit(authenticatedOkHttpClient).create(OrderService::class.java)
+    }
+
+    val dishService: DishService by lazy {
+        createRetrofit(authenticatedOkHttpClient).create(DishService::class.java)
     }
 }

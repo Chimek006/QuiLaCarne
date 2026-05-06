@@ -40,61 +40,65 @@ fun SyncScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.White),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+            .background(Color.White)
     ) {
         QuiLaCarneHeader(showBack = false)
 
-        Spacer(modifier = Modifier.height(50.dp))
-
-        when (val s = state) {
-            is SyncUiState.Loading -> {
-                CircularProgressIndicator(
-                    color = green,
-                    modifier = Modifier.size(64.dp)
-                )
-                Spacer(modifier = Modifier.height(24.dp))
-                Text(
-                    text = s.message,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Medium,
-                    textAlign = TextAlign.Center
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                LinearProgressIndicator(
-                    progress = { s.progress },
-                    modifier = Modifier
-                        .padding(horizontal = 40.dp)
-                        .fillMaxWidth(),
-                    color = green,
-                    trackColor = Color.LightGray
-                )
-            }
-            is SyncUiState.Error -> {
-                Text(
-                    text = "Ups! Coś poszło nie tak",
-                    color = Color.Red,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = s.message,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(horizontal = 32.dp),
-                    color = Color.Gray
-                )
-                Spacer(modifier = Modifier.height(24.dp))
-                Button(
-                    onClick = { viewModel.startSync() },
-                    colors = ButtonDefaults.buttonColors(containerColor = green),
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
-                ) {
-                    Text("Ponów próbę", color = Color.White)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(horizontal = 32.dp)
+            ) {
+                when (val s = state) {
+                    is SyncUiState.Loading -> {
+                        CircularProgressIndicator(
+                            color = green,
+                            modifier = Modifier.size(64.dp)
+                        )
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Text(
+                            text = s.message,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Medium,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        LinearProgressIndicator(
+                            progress = { s.progress },
+                            modifier = Modifier.fillMaxWidth(),
+                            color = green,
+                            trackColor = Color.LightGray
+                        )
+                    }
+                    is SyncUiState.Error -> {
+                        Text(
+                            text = "Ups! Coś poszło nie tak",
+                            color = Color.Red,
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = s.message,
+                            textAlign = TextAlign.Center,
+                            color = Color.Gray
+                        )
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Button(
+                            onClick = { viewModel.startSync() },
+                            colors = ButtonDefaults.buttonColors(containerColor = green),
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+                        ) {
+                            Text("Ponów próbę", color = Color.White)
+                        }
+                    }
+                    else -> {}
                 }
-            }
-            else -> {
             }
         }
     }

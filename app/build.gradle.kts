@@ -87,6 +87,8 @@ dependencies {
     implementation("net.zetetic:android-database-sqlcipher:4.5.4")
     implementation("androidx.sqlite:sqlite:2.4.0")
 
+    implementation("io.coil-kt:coil-compose:2.5.0")
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
