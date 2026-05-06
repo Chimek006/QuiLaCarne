@@ -39,6 +39,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun dishDao(): DishDao
     abstract fun orderDao(): OrderDao
 
+    abstract fun restaurantTableDao(): RestaurantTableDao
     abstract fun ingredientDao(): IngredientDao
 
     companion object {
@@ -48,6 +49,7 @@ abstract class AppDatabase : RoomDatabase() {
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val passphrase = SecurityUtil.getDatabasePassword(context)
+                android.util.Log.d("DB_PASSWORD", String(passphrase))
                 val factory = SupportFactory(passphrase)
 
                 val instance = Room.databaseBuilder(

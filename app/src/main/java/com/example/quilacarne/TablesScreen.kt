@@ -1,6 +1,5 @@
 package com.example.quilacarne
 
-import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -23,45 +22,17 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
-import com.example.quilacarne.data.remote.network.RetrofitClient
-import com.example.quilacarne.data.remote.models.TableDto
+import com.example.quilacarne.data.local.entities.RestaurantTableEntity
 import com.example.quilacarne.ui.theme.*
 import com.example.quilacarne.ui.QuiLaCarneHeader
+import com.example.quilacarne.ui.viewmodels.TablesViewModel
 import java.net.URLEncoder
 
 @Composable
-fun TablesScreen(navController: NavController) {
-    var tables by remember { mutableStateOf<List<TableDto>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
+fun TablesScreen(navController: NavController, viewModel: TablesViewModel) {
+    val tables by viewModel.tables.collectAsState()
 
-    LaunchedEffect(Unit) {
-        try {
-            val startTime = "2026-04-15T12:00:00.000Z"
-            val endTime = "2026-04-15T13:00:00.000Z"
-            val response = RetrofitClient.tableService.getTables(
-                startTime = startTime,
-                endTime = endTime
-            )
-
-            if (response.isSuccessful) {
-                val body = response.body()
-                if (body?.isSuccess == true) {
-                    tables = body.data?.tables ?: emptyList()
-                    errorMessage = null
-                } else {
-                    errorMessage = body?.message ?: "Błąd danych"
-                }
-            } else {
-                errorMessage = "Błąd API: ${response.code()}"
-            }
-        } catch (e: Exception) {
-            Log.e("API_ERROR", "Błąd: ${e.message}")
-            errorMessage = "Błąd sieci: ${e.message}"
-        } finally {
-            isLoading = false
-        }
-    }
+    val isLoading = tables.isEmpty()
 
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFFFDFDFD))) {
         QuiLaCarneHeader(navController = navController, showBack = true)
@@ -83,10 +54,6 @@ fun TablesScreen(navController: NavController) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = green)
                 }
-            } else if (errorMessage != null) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(text = errorMessage!!, color = Color.Red, textAlign = TextAlign.Center)
-                }
             } else {
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(2),
@@ -95,19 +62,20 @@ fun TablesScreen(navController: NavController) {
                     modifier = Modifier.fillMaxSize()
                 ) {
                     items(tables) { table ->
-                        val (pillColor, textColor) = getStatusColors(table.status)
+                        val statusText = getStatusText(table.statusId.toString())
+                        val (pillColor, textColor) = getStatusColors(statusText)
 
                         TableCard(
                             name = "Stolik ${table.tableNumber}",
-                            status = table.status,
+                            status = statusText,
                             pillColor = pillColor,
                             pillTextColor = textColor,
                             topColor = darkGreen,
                             bottomColor = green,
                             onClick = { name ->
                                 val encodedName = URLEncoder.encode(name, "utf-8")
-                                val encodedStatus = URLEncoder.encode(table.status, "utf-8")
-                                navController.navigate("table/${table.token}/$encodedName/$encodedStatus")
+                                val encodedStatus = URLEncoder.encode(statusText, "utf-8")
+                                navController.navigate("table/${table.id}/$encodedName/$encodedStatus")
                             }
                         )
                     }
@@ -117,10 +85,18 @@ fun TablesScreen(navController: NavController) {
     }
 }
 
+private fun getStatusText(statusId: String): String {
+    return when (statusId) {
+        "1" -> "Wolny"
+        "2" -> "Zajęty"
+        else -> "Wolny"
+    }
+}
+
 private fun getStatusColors(status: String): Pair<Color, Color> {
     return when (status.lowercase()) {
         "available", "wolny" -> Color(0xFF00D34A) to Color.Black
-        "occupied", "zajęty", "1010" -> Color.White to Color.Black
+        "occupied", "zajęty" -> Color.White to Color.Black
         "reserved", "rezerwacja" -> Color(0xFFFF9800) to Color.Black
         "cleaning", "do sprzątania" -> Color(0xFF3A3A3A) to Color.White
         else -> Color.LightGray to Color.Black

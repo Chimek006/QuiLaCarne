@@ -3,15 +3,15 @@ package com.example.quilacarne.ui.viewmodels
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.quilacarne.data.local.DatabaseProvider
 import com.example.quilacarne.data.local.entities.DishCategoryEntity
 import com.example.quilacarne.data.local.entities.DishEntity
+import com.example.quilacarne.data.local.AppDatabase
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.util.UUID
 
 class MenuViewModel(application: Application) : AndroidViewModel(application) {
-    private val db = DatabaseProvider.getDatabase(application)
+    private val db = AppDatabase.getDatabase(application)
 
     val categories: StateFlow<List<DishCategoryEntity>> = db.dishCategoryDao()
         .getAllCategories()

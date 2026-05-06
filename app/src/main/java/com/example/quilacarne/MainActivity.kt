@@ -25,6 +25,9 @@ import com.example.quilacarne.ui.QuiLaCarneHeader
 import java.util.UUID
 import kotlin.concurrent.thread
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.platform.LocalContext
+import com.example.quilacarne.data.repository.SyncRepository
+import com.example.quilacarne.ui.viewmodels.TablesViewModel
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -48,7 +51,13 @@ class MainActivity : ComponentActivity() {
                 NavHost(navController = navController, startDestination = "login") {
                     composable("login") { LoginScreen(navController) }
                     composable("main") { MainScreen(navController) }
-                    composable("tables") { TablesScreen(navController) }
+                    composable("tables") {
+                        val context = LocalContext.current
+                        val db = AppDatabase.getDatabase(context)
+                        val repository = SyncRepository(db)
+                        val viewModel = TablesViewModel(repository)
+                        TablesScreen(navController, viewModel)
+                    }
                     composable("menu") { MenuScreen(navController) }
                     composable("settings") { PlaceholderScreen(navController, "Ustawienia") }
 

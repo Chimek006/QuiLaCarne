@@ -3,7 +3,6 @@ package com.example.quilacarne.ui.viewmodels
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.quilacarne.data.local.DatabaseProvider
 import com.example.quilacarne.data.local.entities.TableStatusEntity
 import com.example.quilacarne.data.local.relations.OrderItemWithDish
 import kotlinx.coroutines.Job
@@ -12,9 +11,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.util.UUID
+import com.example.quilacarne.data.local.AppDatabase
 
 class TableDetailViewModel(application: Application) : AndroidViewModel(application) {
-    private val db = DatabaseProvider.getDatabase(application)
+    private val db = AppDatabase.getDatabase(application)
 
     private val _orderItems = MutableStateFlow<List<OrderItemWithDish>>(emptyList())
     val orderItems: StateFlow<List<OrderItemWithDish>> = _orderItems
