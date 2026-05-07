@@ -10,6 +10,7 @@ import com.example.quilacarne.data.local.entities.DishEntity
 import com.example.quilacarne.data.local.entities.IngredientAllergenEntity
 import com.example.quilacarne.data.local.entities.IngredientEntity
 import com.example.quilacarne.data.local.entities.RestaurantTableEntity
+import com.example.quilacarne.data.remote.models.CategoryDto
 import com.example.quilacarne.data.remote.models.DishSyncDto
 import com.example.quilacarne.data.remote.models.IngredientSyncDto
 import com.example.quilacarne.data.remote.models.TableDto
@@ -54,13 +55,13 @@ class SyncRepository(private val database: AppDatabase) {
 
                 if (items.isEmpty()) break
 
-                items.forEach { dto: TableDto ->
+                items.forEach { dto ->
                     allTablesEntities.add(
                         RestaurantTableEntity(
                             id = dto.token.toStableUUID(),
                             tableNumber = dto.tableNumber,
                             capacity = dto.capacity,
-                            statusId = dto.statusToken.takeIf { it.isNotBlank() }?.toStableUUID(),
+                            statusId = null,
                             createdAt = now,
                             updatedAt = now
                         )
@@ -75,7 +76,7 @@ class SyncRepository(private val database: AppDatabase) {
                     dao.clearAll()
                     dao.insertTables(allTablesEntities)
                 }
-                Log.d("SYNC", "✓ Zapisano ${allTablesEntities.size} stolików do bazy")
+                Log.d("SYNC", "Zapisano ${allTablesEntities.size} stolików do bazy")
             } else {
                 Log.w("SYNC", "UWAGA: Brak stolików z API!")
             }
@@ -92,7 +93,7 @@ class SyncRepository(private val database: AppDatabase) {
         val serverIp = "192.168.100.12"
 
         val catResponse = dishService.getCategories(lang = "pl")
-        val categoriesDto = catResponse.body()?.data?.item.orEmpty()
+        val categoriesDto: List<CategoryDto> = catResponse.body()?.data?.item.orEmpty()
 
         val categoryEntities = categoriesDto.map { catDto ->
             DishCategoryEntity(
@@ -141,8 +142,8 @@ class SyncRepository(private val database: AppDatabase) {
                 allergenEntities.add(
                     AllergenEntity(
                         id = allergenId,
-                        namePl = "Alergen $allergenToken",
-                        nameEn = "Allergen $allergenToken",
+                        namePl = "Alergen",
+                        nameEn = "Allergen",
                         createdAt = now,
                         updatedAt = now
                     )
@@ -177,7 +178,6 @@ class SyncRepository(private val database: AppDatabase) {
         val compositionEntities = mutableListOf<DishCompositionEntity>()
 
         allDishesDto.forEach { dto ->
-
             val dishId = dto.token.toStableUUID()
 
             val categoryId = dto.categoryToken
@@ -198,7 +198,6 @@ class SyncRepository(private val database: AppDatabase) {
             )
 
             dto.ingredientTokens.orEmpty().forEach { ingredientToken ->
-
                 compositionEntities.add(
                     DishCompositionEntity(
                         dishId = dishId,
