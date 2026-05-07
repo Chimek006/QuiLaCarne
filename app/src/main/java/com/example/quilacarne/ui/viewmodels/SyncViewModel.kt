@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.quilacarne.data.local.AppDatabase
+import com.example.quilacarne.data.local.TokenManager
 import com.example.quilacarne.data.local.entities.OrderEntity
 import com.example.quilacarne.data.local.entities.OrderItemEntity
 import com.example.quilacarne.data.local.entities.TableStatusEntity
@@ -23,6 +24,8 @@ class SyncViewModel(application: Application) : AndroidViewModel(application) {
     private val db = AppDatabase.getDatabase(application)
     private val orderRepository = OrderRepository()
     private val syncRepository = SyncRepository(db)
+
+    private val tokenManager = TokenManager(application.applicationContext)
 
     private val _uiState = MutableStateFlow<SyncUiState>(SyncUiState.Idle)
     val uiState: StateFlow<SyncUiState> = _uiState
@@ -128,6 +131,7 @@ class SyncViewModel(application: Application) : AndroidViewModel(application) {
                             }
                         }
 
+                        tokenManager.setBootstrapped(true)
                         _uiState.value = SyncUiState.Success
 
                     } catch (e: Exception) {
@@ -135,7 +139,11 @@ class SyncViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 },
                 onFailure = { error ->
-                    _uiState.value = SyncUiState.Error("Błąd sieci (bootstrap): ${error.message}")
+                    if (tokenManager.isBootstrapped()) {
+                        _uiState.value = SyncUiState.OfflineAvailable
+                    } else {
+                        _uiState.value = SyncUiState.Error("Błąd sieci (bootstrap): ${error.message}")
+                    }
                 }
             )
         }

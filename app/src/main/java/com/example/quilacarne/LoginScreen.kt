@@ -1,6 +1,5 @@
 package com.example.quilacarne
 
-import android.util.Log
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -41,35 +40,39 @@ fun LoginScreen(navController: NavController) {
     val loginState by loginViewModel.loginState.collectAsState()
 
     LaunchedEffect(loginState) {
-
         when (loginState) {
-
             is LoginState.Success -> {
+                val isOnline = MainActivity.networkMonitor.isOnline.value
+                val hasBootstrapped = loginViewModel.hasBootstrapped()
 
-                if (MainActivity.networkMonitor.isOnline.value) {
-
-                    navController.navigate("sync") {
-                        popUpTo("login") {
-                            inclusive = true
-                        }
+                if (hasBootstrapped) {
+                    if (!isOnline) {
+                        snackbarHostState.showSnackbar(
+                            "Brak internetu - uruchomiono tryb offline"
+                        )
                     }
-
-                } else {
-
-                    snackbarHostState.showSnackbar(
-                        "Brak internetu - uruchomiono tryb offline"
-                    )
 
                     navController.navigate("main") {
                         popUpTo("login") {
                             inclusive = true
                         }
                     }
+                } else {
+                    if (isOnline) {
+                        navController.navigate("sync") {
+                            popUpTo("login") {
+                                inclusive = true
+                            }
+                        }
+                    } else {
+                        snackbarHostState.showSnackbar(
+                            "Pierwsze logowanie wymaga połączenia z internetem do pobrania danych!"
+                        )
+                    }
                 }
             }
 
             is LoginState.Error -> {
-
                 snackbarHostState.showSnackbar(
                     (loginState as LoginState.Error).message
                 )

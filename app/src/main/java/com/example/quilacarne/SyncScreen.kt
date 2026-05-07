@@ -30,9 +30,11 @@ fun SyncScreen(
     }
 
     if (state is SyncUiState.Success) {
-        LaunchedEffect(Unit) {
-            navController.navigate("main") {
-                popUpTo("sync") { inclusive = true }
+        LaunchedEffect(state) {
+            if (state is SyncUiState.Success || state is SyncUiState.OfflineAvailable) {
+                navController.navigate("main") {
+                    popUpTo("sync") { inclusive = true }
+                }
             }
         }
     }

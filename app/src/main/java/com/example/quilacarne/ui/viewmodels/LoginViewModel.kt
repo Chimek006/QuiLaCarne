@@ -19,6 +19,10 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
     private val _loginState = MutableStateFlow<LoginState>(LoginState.Idle)
     val loginState: StateFlow<LoginState> = _loginState
 
+    fun hasBootstrapped(): Boolean {
+        return tokenManager.isBootstrapped()
+    }
+
     fun login(username: String, password: String) {
         viewModelScope.launch {
             _loginState.value = LoginState.Loading

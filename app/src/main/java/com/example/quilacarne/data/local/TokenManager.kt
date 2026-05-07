@@ -19,4 +19,10 @@ class TokenManager(context: Context) {
     fun clearTokens() {
         prefs.edit().clear().apply()
     }
+
+    fun setBootstrapped(status: Boolean) {
+        prefs.edit().putBoolean("IS_BOOTSTRAPPED", status).apply()
+    }
+
+    fun isBootstrapped(): Boolean = prefs.getBoolean("IS_BOOTSTRAPPED", false)
 }
