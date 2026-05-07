@@ -11,65 +11,149 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.quilacarne.data.local.AppDatabase
+import com.example.quilacarne.data.remote.network.NetworkMonitor
 import com.example.quilacarne.data.remote.network.RetrofitClient
-import com.example.quilacarne.ui.theme.*
+import com.example.quilacarne.data.repository.SyncRepository
 import com.example.quilacarne.ui.QuiLaCarneHeader
+import com.example.quilacarne.ui.theme.QuiLaCarneTheme
+import com.example.quilacarne.ui.viewmodels.TablesViewModel
 import java.util.UUID
 import kotlin.concurrent.thread
-import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.compose.ui.platform.LocalContext
-import com.example.quilacarne.data.repository.SyncRepository
-import com.example.quilacarne.ui.viewmodels.TablesViewModel
 
 class MainActivity : ComponentActivity() {
+
+    companion object {
+        lateinit var networkMonitor: NetworkMonitor
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
+
         super.onCreate(savedInstanceState)
+
+        networkMonitor =
+            NetworkMonitor(applicationContext)
+
         RetrofitClient.init(applicationContext)
 
         thread {
+
             try {
-                val db = AppDatabase.getDatabase(applicationContext)
+
+                val db =
+                    AppDatabase.getDatabase(
+                        applicationContext
+                    )
+
                 db.openHelper.writableDatabase
-                Log.d("QUI_LA_CARNE", "Database connection forced successfully")
+
+                Log.d(
+                    "QUI_LA_CARNE",
+                    "Database connection forced successfully"
+                )
+
             } catch (e: Exception) {
-                Log.e("QUI_LA_CARNE", "Failed to force database connection: ${e.message}")
+
+                Log.e(
+                    "QUI_LA_CARNE",
+                    "Failed to force database connection: ${e.message}"
+                )
             }
         }
 
         setContent {
+
             QuiLaCarneTheme {
-                val navController = rememberNavController()
 
-                NavHost(navController = navController, startDestination = "login") {
-                    composable("login") { LoginScreen(navController) }
-                    composable("main") { MainScreen(navController) }
-                    composable("tables") {
-                        val context = LocalContext.current
-                        val db = AppDatabase.getDatabase(context)
-                        val repository = SyncRepository(db)
-                        val viewModel = TablesViewModel(repository)
-                        TablesScreen(navController, viewModel)
+                val navController =
+                    rememberNavController()
+
+                NavHost(
+                    navController = navController,
+                    startDestination = "login"
+                ) {
+
+                    composable("login") {
+                        LoginScreen(navController)
                     }
-                    composable("menu") { MenuScreen(navController) }
-                    composable("settings") { PlaceholderScreen(navController, "Ustawienia") }
 
-                    composable("table/{tableId}/{tableName}/{status}") { backStackEntry ->
-                        val tableIdString = backStackEntry.arguments?.getString("tableId")
-                        val tableName = backStackEntry.arguments?.getString("tableName") ?: "Stolik"
-                        val status = backStackEntry.arguments?.getString("status") ?: "Wolny"
+                    composable("main") {
+                        MainScreen(navController)
+                    }
+
+                    composable("tables") {
+
+                        val context =
+                            LocalContext.current
+
+                        val db =
+                            AppDatabase.getDatabase(context)
+
+                        val repository =
+                            SyncRepository(db)
+
+                        val viewModel =
+                            TablesViewModel(repository)
+
+                        TablesScreen(
+                            navController,
+                            viewModel
+                        )
+                    }
+
+                    composable("menu") {
+                        MenuScreen(navController)
+                    }
+
+                    composable("settings") {
+
+                        PlaceholderScreen(
+                            navController,
+                            "Ustawienia"
+                        )
+                    }
+
+                    composable(
+                        "table/{tableId}/{tableName}/{status}"
+                    ) { backStackEntry ->
+
+                        val tableIdString =
+                            backStackEntry
+                                .arguments
+                                ?.getString("tableId")
+
+                        val tableName =
+                            backStackEntry
+                                .arguments
+                                ?.getString("tableName")
+                                ?: "Stolik"
+
+                        val status =
+                            backStackEntry
+                                .arguments
+                                ?.getString("status")
+                                ?: "Wolny"
 
                         val tableId = try {
+
                             UUID.fromString(tableIdString)
+
                         } catch (e: Exception) {
-                            UUID.nameUUIDFromBytes(tableIdString?.toByteArray() ?: ByteArray(0))
+
+                            UUID.nameUUIDFromBytes(
+                                tableIdString
+                                    ?.toByteArray()
+                                    ?: ByteArray(0)
+                            )
                         }
 
                         TableDetailScreen(
@@ -80,15 +164,29 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    composable("sync") { SyncScreen(navController) }
+                    composable("sync") {
+                        SyncScreen(navController)
+                    }
 
-                    composable(route = "dish_detail/{dishId}") { backStackEntry ->
-                        val dishIdString = backStackEntry.arguments?.getString("dishId") ?: ""
+                    composable(
+                        route = "dish_detail/{dishId}"
+                    ) { backStackEntry ->
+
+                        val dishIdString =
+                            backStackEntry
+                                .arguments
+                                ?.getString("dishId")
+                                ?: ""
 
                         val dishId = try {
+
                             UUID.fromString(dishIdString)
+
                         } catch (e: Exception) {
-                            UUID.nameUUIDFromBytes(dishIdString.toByteArray())
+
+                            UUID.nameUUIDFromBytes(
+                                dishIdString.toByteArray()
+                            )
                         }
 
                         DishDetailScreen(
@@ -103,25 +201,57 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    fun PlaceholderScreen(navController: NavController, title: String) {
-        Column(modifier = Modifier.fillMaxSize().background(Color.White)) {
-            QuiLaCarneHeader(navController = navController, showBack = true)
+    fun PlaceholderScreen(
+        navController: NavController,
+        title: String
+    ) {
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.White)
+        ) {
+
+            QuiLaCarneHeader(
+                navController = navController,
+                showBack = true
+            )
+
             Column(
-                modifier = Modifier.fillMaxSize().padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+
+                horizontalAlignment =
+                    Alignment.CenterHorizontally,
+
+                verticalArrangement =
+                    Arrangement.Center
             ) {
+
                 Text(
                     text = title,
                     fontSize = 32.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.Black
                 )
-                Spacer(modifier = Modifier.height(30.dp))
+
+                Spacer(
+                    modifier = Modifier.height(30.dp)
+                )
+
                 Button(
-                    onClick = { navController.popBackStack() },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00D34A))
+                    onClick = {
+                        navController.popBackStack()
+                    },
+
+                    colors =
+                        ButtonDefaults.buttonColors(
+                            containerColor =
+                                Color(0xFF00D34A)
+                        )
                 ) {
+
                     Text("Wróć")
                 }
             }

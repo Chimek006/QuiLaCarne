@@ -6,6 +6,7 @@ import com.example.quilacarne.data.local.entities.UsersEntity
 import com.example.quilacarne.data.remote.models.LoginRequest
 import com.example.quilacarne.data.remote.network.RetrofitClient
 import java.util.UUID
+import com.example.quilacarne.data.local.dao.UserDao
 
 class AuthRepository(private val database: AppDatabase) {
 
@@ -68,5 +69,9 @@ class AuthRepository(private val database: AppDatabase) {
             Log.w("AUTH_REPO", "API niedostępne, próbuję offline...")
             loginOffline(username, password)
         }
+    }
+
+    suspend fun hasAnyLocalData(): Boolean {
+        return userDao.getUsersCount() > 0
     }
 }

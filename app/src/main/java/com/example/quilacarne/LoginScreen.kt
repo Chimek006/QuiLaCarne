@@ -21,16 +21,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.quilacarne.data.local.TokenManager
-import com.example.quilacarne.data.remote.models.LoginRequest
-import com.example.quilacarne.data.remote.network.RetrofitClient
 import com.example.quilacarne.ui.QuiLaCarneHeader
 import com.example.quilacarne.ui.theme.green
 import com.example.quilacarne.ui.theme.lightGray
 import com.example.quilacarne.ui.viewmodels.LoginViewModel
 import com.example.quilacarne.ui.viewmodels.LoginState
 import kotlinx.coroutines.launch
-import org.json.JSONObject
 
 @Composable
 fun LoginScreen(navController: NavController) {
@@ -45,15 +41,40 @@ fun LoginScreen(navController: NavController) {
     val loginState by loginViewModel.loginState.collectAsState()
 
     LaunchedEffect(loginState) {
+
         when (loginState) {
+
             is LoginState.Success -> {
-                navController.navigate("sync") {
-                    popUpTo("login") { inclusive = true }
+
+                if (MainActivity.networkMonitor.isOnline.value) {
+
+                    navController.navigate("sync") {
+                        popUpTo("login") {
+                            inclusive = true
+                        }
+                    }
+
+                } else {
+
+                    snackbarHostState.showSnackbar(
+                        "Brak internetu - uruchomiono tryb offline"
+                    )
+
+                    navController.navigate("main") {
+                        popUpTo("login") {
+                            inclusive = true
+                        }
+                    }
                 }
             }
+
             is LoginState.Error -> {
-                snackbarHostState.showSnackbar((loginState as LoginState.Error).message)
+
+                snackbarHostState.showSnackbar(
+                    (loginState as LoginState.Error).message
+                )
             }
+
             else -> {}
         }
     }

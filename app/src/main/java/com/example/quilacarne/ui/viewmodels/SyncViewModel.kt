@@ -148,9 +148,10 @@ class SyncViewModel(application: Application) : AndroidViewModel(application) {
     }
 }
 
-sealed class SyncUiState {
-    object Idle : SyncUiState()
-    data class Loading(val message: String, val progress: Float) : SyncUiState()
-    object Success : SyncUiState()
-    data class Error(val message: String) : SyncUiState()
+sealed interface SyncUiState {
+    data object Idle : SyncUiState
+    data class Loading(val message: String, val progress: Float) : SyncUiState
+    data object Success : SyncUiState
+    data object OfflineAvailable : SyncUiState
+    data class Error(val message: String) : SyncUiState
 }
