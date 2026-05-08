@@ -4,29 +4,22 @@ import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.quilacarne.data.local.AppDatabase
+import com.example.quilacarne.data.local.TokenManager
+import com.example.quilacarne.data.remote.models.LoginRequest
 import com.example.quilacarne.data.remote.network.NetworkMonitor
 import com.example.quilacarne.data.remote.network.RetrofitClient
 import com.example.quilacarne.data.repository.SyncRepository
-import com.example.quilacarne.ui.QuiLaCarneHeader
 import com.example.quilacarne.ui.theme.QuiLaCarneTheme
 import com.example.quilacarne.ui.viewmodels.TablesViewModel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.util.UUID
 import kotlin.concurrent.thread
 
@@ -44,6 +37,7 @@ class MainActivity : ComponentActivity() {
             NetworkMonitor(applicationContext)
 
         RetrofitClient.init(applicationContext)
+        startConnectionWatcher()
 
         thread {
 
@@ -115,11 +109,7 @@ class MainActivity : ComponentActivity() {
                     }
 
                     composable("settings") {
-
-                        PlaceholderScreen(
-                            navController,
-                            "Ustawienia"
-                        )
+                        SettingsScreen(navController)
                     }
 
                     composable(
@@ -200,61 +190,78 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    @Composable
-    fun PlaceholderScreen(
-        navController: NavController,
-        title: String
-    ) {
+    private fun startConnectionWatcher() {
+        val db = AppDatabase.getDatabase(applicationContext)
+        val tokenManager = TokenManager(applicationContext)
+        val syncRepository = SyncRepository(db)
 
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.White)
-        ) {
+        lifecycleScope.launch {
+            var wasServerAvailable = false
 
-            QuiLaCarneHeader(
-                navController = navController,
-                showBack = true
-            )
+            while (true) {
+                networkMonitor.refresh()
 
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(16.dp),
-
-                horizontalAlignment =
-                    Alignment.CenterHorizontally,
-
-                verticalArrangement =
-                    Arrangement.Center
-            ) {
-
-                Text(
-                    text = title,
-                    fontSize = 32.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.Black
-                )
-
-                Spacer(
-                    modifier = Modifier.height(30.dp)
-                )
-
-                Button(
-                    onClick = {
-                        navController.popBackStack()
-                    },
-
-                    colors =
-                        ButtonDefaults.buttonColors(
-                            containerColor =
-                                Color(0xFF00D34A)
-                        )
-                ) {
-
-                    Text("Wróć")
+                val serverAvailable = if (networkMonitor.isOnline.value) {
+                    isServerReachable()
+                } else {
+                    false
                 }
+
+                networkMonitor.updateServerAvailability(serverAvailable)
+
+                val hasActiveSession = !tokenManager.getAccessToken().isNullOrBlank()
+                val shouldSync = serverAvailable &&
+                    !wasServerAvailable &&
+                    tokenManager.isBootstrapped() &&
+                    hasActiveSession
+
+                if (shouldSync) {
+                    runCatching {
+                        reauthenticateOfflineSession(db, tokenManager)
+                        syncRepository.syncAllLocalData().getOrThrow()
+                    }.onFailure { error ->
+                        Log.e("CONNECTION_SYNC", "Background sync failed: ${error.message}")
+                    }
+                }
+
+                wasServerAvailable = serverAvailable
+                delay(15_000L)
             }
+        }
+    }
+
+    private suspend fun isServerReachable(): Boolean {
+        return try {
+            RetrofitClient.authService.csrf().isSuccessful
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private suspend fun reauthenticateOfflineSession(
+        db: AppDatabase,
+        tokenManager: TokenManager
+    ) {
+        val accessToken = tokenManager.getAccessToken()
+
+        if (accessToken?.startsWith("offline_token_") != true) {
+            return
+        }
+
+        val username = tokenManager.getCurrentUsername() ?: return
+        val user = db.userDao().getUserByUsername(username) ?: return
+
+        val response = RetrofitClient.authService.login(
+            LoginRequest(
+                username = user.username,
+                password = user.password
+            )
+        )
+
+        val data = response.body()?.data
+
+        if (response.isSuccessful && response.body()?.isSuccess == true && data != null) {
+            tokenManager.saveTokens(data.token, data.refreshToken)
         }
     }
 }

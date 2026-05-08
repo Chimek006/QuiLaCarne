@@ -21,4 +21,9 @@ interface DishService {
     suspend fun getCategories(
         @Header("Accept-Language") lang: String = "pl"
     ): Response<ApiResponse<CategoriesData>>
+
+    @GET("api/dishes/allergens/dictionary")
+    suspend fun getAllergens(
+        @Header("Accept-Language") lang: String = "pl"
+    ): Response<ApiResponse<AllergenDictionaryData>>
 }

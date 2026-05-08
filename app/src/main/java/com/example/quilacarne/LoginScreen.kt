@@ -10,7 +10,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -20,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.quilacarne.data.repository.LoginSource
 import com.example.quilacarne.ui.QuiLaCarneHeader
 import com.example.quilacarne.ui.theme.green
 import com.example.quilacarne.ui.theme.lightGray
@@ -29,27 +29,42 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun LoginScreen(navController: NavController) {
-    val context = LocalContext.current
     val loginViewModel: LoginViewModel = viewModel()
 
     var login by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var keepLoginButtonLoading by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val loginState by loginViewModel.loginState.collectAsState()
+    val isLoginBusy = loginState is LoginState.Loading || keepLoginButtonLoading
 
     LaunchedEffect(loginState) {
         when (loginState) {
+            is LoginState.Loading -> {
+                keepLoginButtonLoading = true
+            }
+
             is LoginState.Success -> {
-                val isOnline = MainActivity.networkMonitor.isOnline.value
+                val successState = loginState as LoginState.Success
                 val hasBootstrapped = loginViewModel.hasBootstrapped()
 
                 if (hasBootstrapped) {
-                    if (!isOnline) {
-                        snackbarHostState.showSnackbar(
-                            "Brak internetu - uruchomiono tryb offline"
-                        )
+                    when (successState.source) {
+                        LoginSource.OfflineNoInternet -> {
+                            snackbarHostState.showSnackbar(
+                                "Brak internetu - uruchomiono tryb offline"
+                            )
+                        }
+
+                        LoginSource.OfflineServerUnavailable -> {
+                            snackbarHostState.showSnackbar(
+                                "Brak dostępu do serwera - uruchomiono tryb offline"
+                            )
+                        }
+
+                        LoginSource.Online -> Unit
                     }
 
                     navController.navigate("main") {
@@ -58,27 +73,42 @@ fun LoginScreen(navController: NavController) {
                         }
                     }
                 } else {
-                    if (isOnline) {
-                        navController.navigate("sync") {
-                            popUpTo("login") {
-                                inclusive = true
+                    when (successState.source) {
+                        LoginSource.Online -> {
+                            navController.navigate("sync") {
+                                popUpTo("login") {
+                                    inclusive = true
+                                }
                             }
                         }
-                    } else {
-                        snackbarHostState.showSnackbar(
-                            "Pierwsze logowanie wymaga połączenia z internetem do pobrania danych!"
-                        )
+
+                        LoginSource.OfflineNoInternet -> {
+                            snackbarHostState.showSnackbar(
+                                "Pierwsze logowanie wymaga połączenia z internetem do pobrania danych!"
+                            )
+                            keepLoginButtonLoading = false
+                        }
+
+                        LoginSource.OfflineServerUnavailable -> {
+                            snackbarHostState.showSnackbar(
+                                "Brak dostępu do serwera - pierwsza synchronizacja nie może zostać wykonana"
+                            )
+                            keepLoginButtonLoading = false
+                        }
                     }
                 }
             }
 
             is LoginState.Error -> {
+                keepLoginButtonLoading = false
                 snackbarHostState.showSnackbar(
                     (loginState as LoginState.Error).message
                 )
             }
 
-            else -> {}
+            else -> {
+                keepLoginButtonLoading = false
+            }
         }
     }
 
@@ -121,7 +151,7 @@ fun LoginScreen(navController: NavController) {
                                 valueHint = "Login/email",
                                 value = login,
                                 onValueChange = { login = it },
-                                enabled = loginState !is LoginState.Loading
+                                enabled = !isLoginBusy
                             )
 
                             Spacer(modifier = Modifier.height(28.dp))
@@ -131,7 +161,7 @@ fun LoginScreen(navController: NavController) {
                                 value = password,
                                 onValueChange = { password = it },
                                 isPassword = true,
-                                enabled = loginState !is LoginState.Loading
+                                enabled = !isLoginBusy
                             )
 
                             Spacer(modifier = Modifier.height(18.dp))
@@ -157,9 +187,12 @@ fun LoginScreen(navController: NavController) {
                                 return@Button
                             }
 
-                            loginViewModel.login(login, password)
+                            MainActivity.networkMonitor.refresh()
+                            val isOnline = MainActivity.networkMonitor.isOnline.value
+                            keepLoginButtonLoading = true
+                            loginViewModel.login(login, password, isOnline)
                         },
-                        enabled = loginState !is LoginState.Loading,
+                        enabled = !isLoginBusy,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = green,
                             disabledContainerColor = green
@@ -170,10 +203,11 @@ fun LoginScreen(navController: NavController) {
                             .height(56.dp)
                             .shadow(6.dp, RoundedCornerShape(14.dp))
                     ) {
-                        if (loginState is LoginState.Loading) {
+                        if (isLoginBusy) {
                             CircularProgressIndicator(
                                 color = Color.White,
-                                modifier = Modifier.height(24.dp)
+                                strokeWidth = 3.dp,
+                                modifier = Modifier.size(24.dp)
                             )
                         } else {
                             Text("Zaloguj się", color = Color.White, fontSize = 24.sp)

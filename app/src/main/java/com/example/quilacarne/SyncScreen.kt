@@ -29,7 +29,7 @@ fun SyncScreen(
         viewModel.startSync()
     }
 
-    if (state is SyncUiState.Success) {
+    if (state is SyncUiState.Success || state is SyncUiState.OfflineAvailable) {
         LaunchedEffect(state) {
             if (state is SyncUiState.Success || state is SyncUiState.OfflineAvailable) {
                 navController.navigate("main") {

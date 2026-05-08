@@ -6,6 +6,7 @@ import com.example.quilacarne.data.local.TokenManager
 import com.example.quilacarne.data.remote.services.AuthService
 import com.example.quilacarne.data.remote.services.TableService
 import com.example.quilacarne.data.remote.services.OrderService
+import com.example.quilacarne.data.remote.services.UserService
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -52,6 +53,10 @@ object RetrofitClient {
         createRetrofit(authOkHttpClient).create(AuthService::class.java)
     }
 
+    val authenticatedAuthService: AuthService by lazy {
+        createRetrofit(authenticatedOkHttpClient).create(AuthService::class.java)
+    }
+
     val tableService: TableService by lazy {
         createRetrofit(authenticatedOkHttpClient).create(TableService::class.java)
     }
@@ -62,5 +67,9 @@ object RetrofitClient {
 
     val dishService: DishService by lazy {
         createRetrofit(authenticatedOkHttpClient).create(DishService::class.java)
+    }
+
+    val userService: UserService by lazy {
+        createRetrofit(authenticatedOkHttpClient).create(UserService::class.java)
     }
 }

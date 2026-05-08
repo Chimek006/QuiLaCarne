@@ -15,7 +15,7 @@ interface OrderService {
         @Query("page") page: Int = 1
     ): Response<ApiResponse<PaginatedList<OrderSyncDto>>>
 
-    @GET("api/sync/order-item")
+    @GET("api/sync/order-items")
     suspend fun syncOrderItems(
         @Query("page") page: Int = 1
     ): Response<ApiResponse<PaginatedList<OrderItemSyncDto>>>

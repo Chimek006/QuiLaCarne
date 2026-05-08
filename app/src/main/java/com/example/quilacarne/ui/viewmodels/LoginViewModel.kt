@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.quilacarne.data.local.AppDatabase
 import com.example.quilacarne.data.local.TokenManager
 import com.example.quilacarne.data.repository.AuthRepository
+import com.example.quilacarne.data.repository.LoginSource
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -23,18 +24,19 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
         return tokenManager.isBootstrapped()
     }
 
-    fun login(username: String, password: String) {
+    fun login(username: String, password: String, isOnline: Boolean) {
         viewModelScope.launch {
             _loginState.value = LoginState.Loading
 
-            val result = authRepository.loginHybrid(username, password)
+            val result = authRepository.loginHybrid(username, password, isOnline)
 
-            result.onSuccess { token ->
+            result.onSuccess { loginResult ->
                 tokenManager.saveTokens(
-                    accessToken = token,
-                    refreshToken = "offline_refresh"
+                    accessToken = loginResult.token,
+                    refreshToken = loginResult.refreshToken
                 )
-                _loginState.value = LoginState.Success
+                tokenManager.setCurrentUsername(username.trim())
+                _loginState.value = LoginState.Success(loginResult.source)
             }
 
             result.onFailure { error ->
@@ -48,6 +50,6 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
 sealed class LoginState {
     object Idle : LoginState()
     object Loading : LoginState()
-    object Success : LoginState()
+    data class Success(val source: LoginSource) : LoginState()
     data class Error(val message: String) : LoginState()
 }

@@ -17,7 +17,11 @@ class TokenManager(context: Context) {
     fun getRefreshToken(): String? = prefs.getString("REFRESH_TOKEN", null)
 
     fun clearTokens() {
-        prefs.edit().clear().apply()
+        prefs.edit()
+            .remove("ACCESS_TOKEN")
+            .remove("REFRESH_TOKEN")
+            .remove("CURRENT_USERNAME")
+            .apply()
     }
 
     fun setBootstrapped(status: Boolean) {
@@ -25,4 +29,10 @@ class TokenManager(context: Context) {
     }
 
     fun isBootstrapped(): Boolean = prefs.getBoolean("IS_BOOTSTRAPPED", false)
+
+    fun setCurrentUsername(username: String) {
+        prefs.edit().putString("CURRENT_USERNAME", username).apply()
+    }
+
+    fun getCurrentUsername(): String? = prefs.getString("CURRENT_USERNAME", null)
 }
