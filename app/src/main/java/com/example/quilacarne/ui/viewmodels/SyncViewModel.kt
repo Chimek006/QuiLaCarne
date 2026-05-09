@@ -13,7 +13,7 @@ import kotlinx.coroutines.launch
 class SyncViewModel(application: Application) : AndroidViewModel(application) {
 
     private val db = AppDatabase.getDatabase(application)
-    private val syncRepository = SyncRepository(db)
+    private val syncRepository = SyncRepository(db, application.applicationContext)
     private val tokenManager = TokenManager(application.applicationContext)
 
     private val _uiState = MutableStateFlow<SyncUiState>(SyncUiState.Idle)
@@ -23,7 +23,7 @@ class SyncViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _uiState.value = SyncUiState.Loading("Synchronizacja danych...", 0.10f)
 
-            syncRepository.syncAllLocalData().fold(
+            syncRepository.syncAllLocalData(clearBeforeSync = true).fold(
                 onSuccess = {
                     tokenManager.setBootstrapped(true)
                     _uiState.value = SyncUiState.Success

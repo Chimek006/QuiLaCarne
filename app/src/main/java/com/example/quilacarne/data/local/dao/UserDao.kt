@@ -16,6 +16,9 @@ interface UserDao {
     @Query("SELECT * FROM users WHERE deleted_at IS NULL ORDER BY username")
     fun getAllUsersFlow(): Flow<List<UsersEntity>>
 
+    @Query("SELECT * FROM users WHERE deleted_at IS NULL ORDER BY username")
+    suspend fun getAllUsersOnce(): List<UsersEntity>
+
     @Query("SELECT * FROM users WHERE deleted_at IS NULL AND LOWER(role) LIKE '%waiter%' ORDER BY username")
     fun getWaitersFlow(): Flow<List<UsersEntity>>
 
@@ -33,10 +36,4 @@ interface UserDao {
 
     @Query("SELECT COUNT(*) FROM users")
     suspend fun getUsersCount(): Int
-
-    @Query("UPDATE users SET username = :newUsername, updated_at = :updatedAt WHERE username = :oldUsername")
-    suspend fun updateUsername(oldUsername: String, newUsername: String, updatedAt: String)
-
-    @Query("UPDATE users SET password = :newPassword, updated_at = :updatedAt WHERE username = :username")
-    suspend fun updatePassword(username: String, newPassword: String, updatedAt: String)
 }

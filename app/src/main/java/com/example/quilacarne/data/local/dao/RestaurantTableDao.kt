@@ -13,6 +13,9 @@ interface RestaurantTableDao {
     @Query("SELECT * FROM restaurant_tables WHERE id = :tableId LIMIT 1")
     fun getTableById(tableId: UUID): Flow<RestaurantTableEntity?>
 
+    @Query("SELECT * FROM restaurant_tables WHERE id = :tableId LIMIT 1")
+    suspend fun getTableByIdOnce(tableId: UUID): RestaurantTableEntity?
+
     @Query("UPDATE restaurant_tables SET status_id = :statusId, updated_at = :updatedAt WHERE id = :tableId")
     suspend fun updateStatus(tableId: UUID, statusId: UUID?, updatedAt: String)
 

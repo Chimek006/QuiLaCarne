@@ -16,6 +16,10 @@ interface DishDao {
     @Query("SELECT * FROM dishes WHERE id = :dishId")
     fun getDishWithIngredients(dishId: UUID): Flow<DishWithIngredients?>
 
+    @Transaction
+    @Query("SELECT * FROM dishes")
+    fun getDishesWithIngredients(): Flow<List<DishWithIngredients>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertDishes(dishes: List<DishEntity>)
 

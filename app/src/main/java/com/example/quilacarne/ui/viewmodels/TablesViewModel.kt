@@ -9,12 +9,14 @@ import com.example.quilacarne.data.repository.SyncRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 class TablesViewModel(private val repository: SyncRepository) : ViewModel() {
 
-    private val _isSyncComplete = MutableStateFlow(false)
+    private val _isSyncComplete = MutableStateFlow(true)
     val isSyncComplete: StateFlow<Boolean> = _isSyncComplete
 
     val tables: StateFlow<List<RestaurantTableEntity>> = repository.getTablesFlow()
@@ -31,9 +33,35 @@ class TablesViewModel(private val repository: SyncRepository) : ViewModel() {
             initialValue = emptyList()
         )
 
-    init {
-        refreshTables()
-    }
+    val waiterNamesByTable: StateFlow<Map<UUID, String>> = combine(
+        tables,
+        statuses,
+        repository.getOrdersFlow(),
+        repository.getUsersFlow()
+    ) { tables, statuses, orders, users ->
+        val occupiedStatusIds = statuses
+            .filter { it.token.uppercase() == "OCCUPIED" }
+            .map { it.id }
+            .toSet()
+
+        tables
+            .filter { it.statusId in occupiedStatusIds }
+            .mapNotNull { table ->
+                val waiterName = orders
+                    .firstOrNull { it.tableId == table.id }
+                    ?.waiterId
+                    ?.let { waiterId ->
+                        users.firstOrNull { it.id == waiterId }?.username
+                    }
+
+                waiterName?.let { table.id to it }
+            }
+            .toMap()
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyMap()
+    )
 
     fun refreshTables() {
         viewModelScope.launch {

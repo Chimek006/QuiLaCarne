@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
+import com.example.quilacarne.data.local.entities.AllergenEntity
 import com.example.quilacarne.data.local.entities.DishEntity
 import com.example.quilacarne.ui.QuiLaCarneHeader
 import com.example.quilacarne.ui.theme.*
@@ -37,6 +38,8 @@ fun MenuScreen(
     val dishes by viewModel.dishes.collectAsState()
     val categories by viewModel.categories.collectAsState()
     val selectedCategoryId by viewModel.selectedCategoryId.collectAsState()
+    val allergens by viewModel.allergens.collectAsState()
+    val selectedAllergenIds by viewModel.selectedAllergenIds.collectAsState()
 
     var searchQuery by remember { mutableStateOf("") }
 
@@ -71,7 +74,7 @@ fun MenuScreen(
         LazyRow(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 8.dp),
+                .padding(top = 8.dp, bottom = 4.dp),
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -88,6 +91,24 @@ fun MenuScreen(
                     isSelected = selectedCategoryId == category.id,
                     onClick = { viewModel.selectCategory(category.id) }
                 )
+            }
+        }
+
+        if (allergens.isNotEmpty()) {
+            LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp, bottom = 8.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(allergens) { allergen ->
+                    AllergenChip(
+                        allergen = allergen,
+                        isSelected = allergen.id in selectedAllergenIds,
+                        onClick = { viewModel.toggleAllergen(allergen.id) }
+                    )
+                }
             }
         }
 
@@ -111,6 +132,23 @@ fun MenuScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+fun AllergenChip(allergen: AllergenEntity, isSelected: Boolean, onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier.clickable { onClick() },
+        shape = RoundedCornerShape(20.dp),
+        color = if (isSelected) Color(0xFFD84315) else lightGray,
+        contentColor = if (isSelected) Color.White else Color.Black
+    ) {
+        Text(
+            text = allergen.namePl,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium
+        )
     }
 }
 

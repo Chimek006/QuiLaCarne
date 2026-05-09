@@ -1,5 +1,6 @@
 package com.example.quilacarne
 
+import android.net.Uri
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -17,6 +18,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.*
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import com.example.quilacarne.data.local.entities.RestaurantTableEntity
 import com.example.quilacarne.data.local.entities.TableStatusEntity
 import com.example.quilacarne.data.local.entities.UsersEntity
 import com.example.quilacarne.ui.theme.*
@@ -37,13 +39,19 @@ fun TableDetailScreen(
     val statusDict by viewModel.statusDictionary.collectAsState()
     val tableStatusId by viewModel.tableStatusId.collectAsState()
     val waiters by viewModel.waiters.collectAsState()
+    val tables by viewModel.tables.collectAsState()
     val activeOrderId by viewModel.activeOrderId.collectAsState()
+    val assignedWaiterName by viewModel.assignedWaiterName.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
+    var showStatusDialog by remember { mutableStateOf(false) }
     var showWaiterDialog by remember { mutableStateOf(false) }
+    var showTableMoveDialog by remember { mutableStateOf(false) }
     var pendingOccupiedStatus by remember { mutableStateOf<TableStatusOption?>(null) }
     var stagedStatus by remember(tableId) { mutableStateOf<TableStatusOption?>(null) }
     var stagedWaiter by remember(tableId) { mutableStateOf<UsersEntity?>(null) }
     var isSavingChanges by remember { mutableStateOf(false) }
+    var isMovingTable by remember { mutableStateOf(false) }
+    var tableMoveError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(tableId) {
         viewModel.loadTableData(tableId)
@@ -77,7 +85,13 @@ fun TableDetailScreen(
     }
 
     val (statusPillColor, statusTextColor) = getStatusColorsByToken(displayedToken)
+    val displayedWaiterName = stagedWaiter?.username ?: assignedWaiterName
     val hasPendingChanges = stagedStatus != null || stagedWaiter != null
+    val targetTables = remember(tables, tableId) {
+        tables
+            .filter { it.id != tableId }
+            .sortedBy { it.tableNumber }
+    }
 
     val totalPrice = remember(orderItems) {
         orderItems.fold(0.0) { acc, wrapper ->
@@ -117,25 +131,31 @@ fun TableDetailScreen(
                 }
             }
 
+            if (displayedToken == "OCCUPIED") {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Kelner: ${displayedWaiterName ?: "brak"}",
+                    modifier = Modifier.fillMaxWidth(),
+                    color = Color.DarkGray,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
             Spacer(modifier = Modifier.height(20.dp))
 
             ActionButtons(
-                statusOptions = statusOptions,
-                currentStatusToken = displayedToken,
                 canEditOrder = activeOrderId != null,
-                onStatusSelected = { status ->
-                    if (status.token == "OCCUPIED") {
-                        pendingOccupiedStatus = status
-                        showWaiterDialog = true
-                    } else {
-                        stagedStatus = status
-                        stagedWaiter = null
-                    }
-                },
+                canMoveOrder = activeOrderId != null && !isMovingTable,
+                onStatusClick = { showStatusDialog = true },
                 onEditOrder = {
                     activeOrderId?.let { orderId ->
                         navController.navigate("order_add/$tableId/$orderId")
                     }
+                },
+                onMoveTable = {
+                    tableMoveError = null
+                    showTableMoveDialog = true
                 }
             )
 
@@ -237,6 +257,24 @@ fun TableDetailScreen(
             Spacer(modifier = Modifier.height(40.dp))
         }
 
+        if (showStatusDialog) {
+            StatusSelectionDialog(
+                statusOptions = statusOptions,
+                currentStatusToken = displayedToken,
+                onDismiss = { showStatusDialog = false },
+                onStatusSelected = { status ->
+                    showStatusDialog = false
+                    if (status.token == "OCCUPIED") {
+                        pendingOccupiedStatus = status
+                        showWaiterDialog = true
+                    } else {
+                        stagedStatus = status
+                        stagedWaiter = null
+                    }
+                }
+            )
+        }
+
         if (showWaiterDialog) {
             WaiterAssignmentDialog(
                 waiters = waiters,
@@ -251,6 +289,43 @@ fun TableDetailScreen(
                         stagedWaiter = waiter
                         showWaiterDialog = false
                         pendingOccupiedStatus = null
+                    }
+                }
+            )
+        }
+
+        if (showTableMoveDialog) {
+            TableMoveDialog(
+                tables = targetTables,
+                statuses = statusDict,
+                isMoving = isMovingTable,
+                errorMessage = tableMoveError,
+                onDismiss = {
+                    if (!isMovingTable) {
+                        showTableMoveDialog = false
+                        tableMoveError = null
+                    }
+                },
+                onTableSelected = { targetTable ->
+                    isMovingTable = true
+                    tableMoveError = null
+                    viewModel.moveTableOrder(
+                        currentTableId = tableId,
+                        newTableId = targetTable.id
+                    ) { moved ->
+                        isMovingTable = false
+                        if (moved) {
+                            showTableMoveDialog = false
+                            val encodedName = Uri.encode("Stolik ${targetTable.tableNumber}")
+                            val encodedStatus = Uri.encode("OCCUPIED")
+                            navController.navigate("table/${targetTable.id}/$encodedName/$encodedStatus") {
+                                popUpTo("tables") {
+                                    inclusive = false
+                                }
+                            }
+                        } else {
+                            tableMoveError = "Nie udało się przenieść zamówienia na wybrany stolik."
+                        }
                     }
                 }
             )
@@ -344,44 +419,20 @@ fun SaveChangesButton(
 
 @Composable
 fun ActionButtons(
-    statusOptions: List<TableStatusOption>,
-    currentStatusToken: String,
     canEditOrder: Boolean,
-    onStatusSelected: (TableStatusOption) -> Unit,
-    onEditOrder: () -> Unit
+    canMoveOrder: Boolean,
+    onStatusClick: () -> Unit,
+    onEditOrder: () -> Unit,
+    onMoveTable: () -> Unit
 ) {
-    var expanded by remember { mutableStateOf(false) }
-
     Column {
-        Box(modifier = Modifier.fillMaxWidth()) {
-            Button(
-                onClick = { expanded = true },
-                colors = ButtonDefaults.buttonColors(containerColor = green),
-                modifier = Modifier.fillMaxWidth().height(54.dp),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Text("Zmień status stolika", color = Color.White)
-            }
-            DropdownMenu(
-                expanded = expanded,
-                onDismissRequest = { expanded = false },
-                modifier = Modifier.fillMaxWidth(0.9f)
-            ) {
-                statusOptions.forEach { status ->
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                text = if (status.token == currentStatusToken) "${status.name} ✓" else status.name,
-                                color = Color.Black
-                            )
-                        },
-                        onClick = {
-                            expanded = false
-                            onStatusSelected(status)
-                        }
-                    )
-                }
-            }
+        Button(
+            onClick = onStatusClick,
+            colors = ButtonDefaults.buttonColors(containerColor = green),
+            modifier = Modifier.fillMaxWidth().height(54.dp),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Text("Zmień status stolika", color = Color.White)
         }
         Spacer(modifier = Modifier.height(12.dp))
         OutlinedButton(
@@ -395,14 +446,65 @@ fun ActionButtons(
         Spacer(modifier = Modifier.height(12.dp))
 
         Button(
-            onClick = { /* TODO */ },
-            colors = ButtonDefaults.buttonColors(containerColor = green),
+            onClick = onMoveTable,
+            enabled = canMoveOrder,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = green,
+                disabledContainerColor = Color(0xFFE0E0E0),
+                disabledContentColor = Color(0xFF8E8E8E)
+            ),
             modifier = Modifier.fillMaxWidth().height(54.dp),
             shape = RoundedCornerShape(12.dp)
         ) {
-            Text("Zmień stolik", color = Color.White)
+            Text("Zmień stolik")
         }
     }
+}
+
+@Composable
+private fun StatusSelectionDialog(
+    statusOptions: List<TableStatusOption>,
+    currentStatusToken: String,
+    onDismiss: () -> Unit,
+    onStatusSelected: (TableStatusOption) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(24.dp),
+        containerColor = Color(0xFFF4F4F4),
+        title = {
+            Text(
+                text = "Zmień status stolika",
+                fontWeight = FontWeight.Bold,
+                color = Color.Black,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        text = {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 320.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                items(statusOptions) { status ->
+                    val selected = status.token == currentStatusToken
+                    DialogOptionButton(
+                        text = if (selected) "${status.name} ✓" else status.name,
+                        selected = selected,
+                        onClick = { onStatusSelected(status) }
+                    )
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Anuluj")
+            }
+        }
+    )
 }
 
 @Composable
@@ -431,20 +533,14 @@ private fun WaiterAssignmentDialog(
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 320.dp)
+                        .heightIn(max = 320.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     items(waiters) { waiter ->
-                        TextButton(
-                            onClick = { onWaiterSelected(waiter) },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = waiter.username,
-                                modifier = Modifier.fillMaxWidth(),
-                                color = Color.Black,
-                                fontSize = 16.sp
-                            )
-                        }
+                        DialogOptionButton(
+                            text = waiter.username,
+                            onClick = { onWaiterSelected(waiter) }
+                        )
                     }
                 }
             }
@@ -456,6 +552,153 @@ private fun WaiterAssignmentDialog(
             }
         }
     )
+}
+
+@Composable
+private fun TableMoveDialog(
+    tables: List<RestaurantTableEntity>,
+    statuses: List<TableStatusEntity>,
+    isMoving: Boolean,
+    errorMessage: String?,
+    onDismiss: () -> Unit,
+    onTableSelected: (RestaurantTableEntity) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(24.dp),
+        containerColor = Color(0xFFF4F4F4),
+        title = {
+            Text(
+                text = "Wybierz nowy stolik",
+                fontWeight = FontWeight.Bold,
+                color = Color.Black,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                errorMessage?.let {
+                    Text(
+                        text = it,
+                        color = Color(0xFFD32F2F),
+                        fontSize = 13.sp,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                if (tables.isEmpty()) {
+                    Text(
+                        text = "Brak innych stolików w lokalnej bazie.",
+                        color = Color.Gray,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 340.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(tables, key = { it.id }) { table ->
+                            val statusToken = getTableStatusToken(table, statuses)
+                            val isAvailable = statusToken == "AVAILABLE"
+                            val statusName = getTableStatusName(table, statuses)
+                            val helperText = if (isAvailable) {
+                                statusName
+                            } else {
+                                "Status: $statusName"
+                            }
+
+                            DialogOptionButton(
+                                text = "Stolik ${table.tableNumber}",
+                                supportingText = helperText,
+                                enabled = isAvailable && !isMoving,
+                                onClick = { onTableSelected(table) }
+                            )
+                        }
+                    }
+                }
+
+                if (isMoving) {
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(
+                            color = green,
+                            strokeWidth = 3.dp,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                enabled = !isMoving
+            ) {
+                Text("Anuluj")
+            }
+        }
+    )
+}
+
+@Composable
+private fun DialogOptionButton(
+    text: String,
+    supportingText: String? = null,
+    selected: Boolean = false,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    val borderColor = when {
+        selected -> green
+        enabled -> Color(0xFFBDBDBD)
+        else -> Color(0xFFDADADA)
+    }
+
+    OutlinedButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 52.dp),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.5.dp, borderColor),
+        colors = ButtonDefaults.outlinedButtonColors(
+            containerColor = if (selected) green.copy(alpha = 0.12f) else Color.White,
+            disabledContainerColor = Color(0xFFEFEFEF),
+            contentColor = Color.Black,
+            disabledContentColor = Color.Gray
+        )
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = text,
+                color = if (enabled) Color.Black else Color.Gray,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center
+            )
+            supportingText?.let {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = it,
+                    color = if (enabled) Color.Gray else Color(0xFF8E8E8E),
+                    fontSize = 12.sp,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+    }
 }
 
 data class TableStatusOption(
@@ -478,6 +721,32 @@ private fun buildTableStatusOptions(statuses: List<TableStatusEntity>): List<Tab
             name = statusesByToken[token]?.namePl ?: fallbackName
         )
     }
+}
+
+private fun getTableStatusName(
+    table: RestaurantTableEntity,
+    statuses: List<TableStatusEntity>
+): String {
+    val status = statuses.find { it.id == table.statusId }
+    return status?.namePl ?: when (status?.token?.uppercase()) {
+        "AVAILABLE" -> "Wolny"
+        "OCCUPIED" -> "Zajęty"
+        "RESERVED" -> "Zarezerwowany"
+        "CLEANING" -> "Do sprzątnięcia"
+        "OUT_OF_SERVICE" -> "Wyłączony"
+        else -> "Wolny"
+    }
+}
+
+private fun getTableStatusToken(
+    table: RestaurantTableEntity,
+    statuses: List<TableStatusEntity>
+): String {
+    return statuses
+        .find { it.id == table.statusId }
+        ?.token
+        ?.uppercase()
+        ?: "AVAILABLE"
 }
 
 private fun normalizeStatusToken(status: String): String {

@@ -19,4 +19,7 @@ interface IngredientDao {
 
     @Query("SELECT * FROM ingredients")
     fun getAllIngredients(): Flow<List<IngredientEntity>>
+
+    @Query("SELECT * FROM allergens WHERE deleted_at IS NULL ORDER BY name_pl")
+    fun getAllAllergens(): Flow<List<AllergenEntity>>
 }

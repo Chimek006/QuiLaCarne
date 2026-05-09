@@ -52,24 +52,34 @@ fun LoginScreen(navController: NavController) {
 
                 if (hasBootstrapped) {
                     when (successState.source) {
+                        LoginSource.Online -> {
+                            navController.navigate("sync") {
+                                popUpTo("login") {
+                                    inclusive = true
+                                }
+                            }
+                        }
+
                         LoginSource.OfflineNoInternet -> {
                             snackbarHostState.showSnackbar(
                                 "Brak internetu - uruchomiono tryb offline"
                             )
+                            navController.navigate("main") {
+                                popUpTo("login") {
+                                    inclusive = true
+                                }
+                            }
                         }
 
                         LoginSource.OfflineServerUnavailable -> {
                             snackbarHostState.showSnackbar(
                                 "Brak dostępu do serwera - uruchomiono tryb offline"
                             )
-                        }
-
-                        LoginSource.Online -> Unit
-                    }
-
-                    navController.navigate("main") {
-                        popUpTo("login") {
-                            inclusive = true
+                            navController.navigate("main") {
+                                popUpTo("login") {
+                                    inclusive = true
+                                }
+                            }
                         }
                     }
                 } else {
@@ -167,7 +177,7 @@ fun LoginScreen(navController: NavController) {
                             Spacer(modifier = Modifier.height(18.dp))
 
                             Text(
-                                text = "Brak dostępu? Spróbuj login offline jeśli masz zarejestrowany",
+                                text = "O rejestrację, lub w przypadku utraty hasła poproś szefa kuchni o pomoc",
                                 fontSize = 12.sp,
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier.padding(horizontal = 8.dp),

@@ -1,5 +1,6 @@
 package com.example.quilacarne
 
+import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -97,7 +98,7 @@ class MainActivity : ComponentActivity() {
 
                         val repository =
                             remember(db) {
-                                SyncRepository(db)
+                                SyncRepository(db, context.applicationContext)
                             }
 
                         val viewModel =
@@ -115,10 +116,6 @@ class MainActivity : ComponentActivity() {
                         MenuScreen(navController)
                     }
 
-                    composable("settings") {
-                        SettingsScreen(navController)
-                    }
-
                     composable(
                         "table/{tableId}/{tableName}/{status}"
                     ) { backStackEntry ->
@@ -129,16 +126,20 @@ class MainActivity : ComponentActivity() {
                                 ?.getString("tableId")
 
                         val tableName =
-                            backStackEntry
-                                .arguments
-                                ?.getString("tableName")
-                                ?: "Stolik"
+                            decodeNavArgument(
+                                backStackEntry
+                                    .arguments
+                                    ?.getString("tableName")
+                                    ?: "Stolik"
+                            )
 
                         val status =
-                            backStackEntry
-                                .arguments
-                                ?.getString("status")
-                                ?: "Wolny"
+                            decodeNavArgument(
+                                backStackEntry
+                                    .arguments
+                                    ?.getString("status")
+                                    ?: "Wolny"
+                            )
 
                         val tableId = try {
 
@@ -272,7 +273,7 @@ class MainActivity : ComponentActivity() {
     private fun startConnectionWatcher() {
         val db = AppDatabase.getDatabase(applicationContext)
         val tokenManager = TokenManager(applicationContext)
-        val syncRepository = SyncRepository(db)
+        val syncRepository = SyncRepository(db, applicationContext)
 
         lifecycleScope.launch {
             var wasServerAvailable = false
@@ -297,7 +298,7 @@ class MainActivity : ComponentActivity() {
                 if (shouldSync) {
                     runCatching {
                         reauthenticateOfflineSession(db, tokenManager)
-                        syncRepository.syncAllLocalData().getOrThrow()
+                        syncRepository.syncAllLocalData(clearBeforeSync = true).getOrThrow()
                     }.onFailure { error ->
                         Log.e("CONNECTION_SYNC", "Background sync failed: ${error.message}")
                     }
@@ -316,6 +317,10 @@ class MainActivity : ComponentActivity() {
         } catch (e: Exception) {
             false
         }
+    }
+
+    private fun decodeNavArgument(value: String): String {
+        return Uri.decode(value).replace("+", " ")
     }
 
     private suspend fun reauthenticateOfflineSession(

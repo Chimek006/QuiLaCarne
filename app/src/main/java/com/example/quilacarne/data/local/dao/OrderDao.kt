@@ -9,7 +9,7 @@ import java.util.UUID
 
 @Dao
 interface OrderDao {
-    @Query("SELECT * FROM orders WHERE deleted_at IS NULL ORDER BY created_at DESC")
+    @Query("SELECT * FROM orders WHERE deleted_at IS NULL ORDER BY updated_at DESC, created_at DESC")
     fun getAllOrders(): Flow<List<OrderEntity>>
 
     @Transaction
@@ -28,10 +28,10 @@ interface OrderDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertOrderItem(item: OrderItemEntity)
 
-    @Query("SELECT * FROM orders WHERE table_id = :tableId AND deleted_at IS NULL LIMIT 1")
+    @Query("SELECT * FROM orders WHERE table_id = :tableId AND deleted_at IS NULL ORDER BY updated_at DESC, created_at DESC LIMIT 1")
     fun getActiveOrderForTable(tableId: UUID): Flow<OrderEntity?>
 
-    @Query("SELECT * FROM orders WHERE table_id = :tableId AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1")
+    @Query("SELECT * FROM orders WHERE table_id = :tableId AND deleted_at IS NULL ORDER BY updated_at DESC, created_at DESC LIMIT 1")
     suspend fun getActiveOrderForTableOnce(tableId: UUID): OrderEntity?
 
     @Query("UPDATE orders SET status_id = :statusId WHERE id = :orderId")
@@ -39,6 +39,16 @@ interface OrderDao {
 
     @Query("UPDATE orders SET waiter_id = :waiterId, updated_at = :updatedAt WHERE id = :orderId")
     suspend fun updateOrderWaiter(orderId: UUID, waiterId: UUID, updatedAt: String)
+
+    @Query(
+        "UPDATE orders SET table_id = :newTableId, updated_at = :updatedAt " +
+            "WHERE id = :orderId AND deleted_at IS NULL"
+    )
+    suspend fun moveOrderToTable(
+        orderId: UUID,
+        newTableId: UUID,
+        updatedAt: String
+    ): Int
 
     @Query("UPDATE orders SET total_price = :totalPrice, updated_at = :updatedAt WHERE id = :orderId")
     suspend fun updateOrderTotal(orderId: UUID, totalPrice: Int, updatedAt: String)

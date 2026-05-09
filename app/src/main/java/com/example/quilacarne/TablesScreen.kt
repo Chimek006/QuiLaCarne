@@ -1,5 +1,6 @@
 package com.example.quilacarne
 
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -27,13 +28,13 @@ import com.example.quilacarne.data.local.entities.TableStatusEntity
 import com.example.quilacarne.ui.theme.*
 import com.example.quilacarne.ui.QuiLaCarneHeader
 import com.example.quilacarne.ui.viewmodels.TablesViewModel
-import java.net.URLEncoder
 import java.util.UUID
 
 @Composable
 fun TablesScreen(navController: NavController, viewModel: TablesViewModel) {
     val tables by viewModel.tables.collectAsState()
     val statuses by viewModel.statuses.collectAsState()
+    val waiterNamesByTable by viewModel.waiterNamesByTable.collectAsState()
     val isSyncComplete by viewModel.isSyncComplete.collectAsState()
     val sortedTables = remember(tables) {
         tables.sortedBy { it.tableNumber }
@@ -84,13 +85,14 @@ fun TablesScreen(navController: NavController, viewModel: TablesViewModel) {
                         TableCard(
                             name = "Stolik ${table.tableNumber}",
                             status = statusText,
+                            waiterName = waiterNamesByTable[table.id],
                             pillColor = pillColor,
                             pillTextColor = textColor,
                             topColor = darkGreen,
                             bottomColor = green,
                             onClick = { name ->
-                                val encodedName = URLEncoder.encode(name, "utf-8")
-                                val encodedStatus = URLEncoder.encode(statusToken, "utf-8")
+                                val encodedName = Uri.encode(name)
+                                val encodedStatus = Uri.encode(statusToken)
                                 navController.navigate("table/${table.id}/$encodedName/$encodedStatus")
                             }
                         )
@@ -131,6 +133,7 @@ private fun getStatusColors(status: String): Pair<Color, Color> {
 private fun TableCard(
     name: String,
     status: String,
+    waiterName: String?,
     pillColor: Color,
     pillTextColor: Color,
     topColor: Color,
@@ -169,19 +172,36 @@ private fun TableCard(
                     .background(bottomColor),
                 contentAlignment = Alignment.Center
             ) {
-                Box(
-                    modifier = Modifier
-                        .shadow(4.dp, RoundedCornerShape(8.dp))
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(pillColor)
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
                 ) {
-                    Text(
-                        text = status,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = pillTextColor
-                    )
+                    Box(
+                        modifier = Modifier
+                            .shadow(4.dp, RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(pillColor)
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = status,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = pillTextColor
+                        )
+                    }
+
+                    waiterName?.let {
+                        Spacer(modifier = Modifier.height(5.dp))
+                        Text(
+                            text = "Kelner: $it",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White,
+                            textAlign = TextAlign.Center,
+                            maxLines = 1
+                        )
+                    }
                 }
             }
         }
