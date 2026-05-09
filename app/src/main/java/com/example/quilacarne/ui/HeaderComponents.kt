@@ -2,6 +2,7 @@ package com.example.quilacarne.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -11,8 +12,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -36,27 +42,8 @@ fun QuiLaCarneHeader(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(40.dp)
-                .background(green),
-            contentAlignment = Alignment.CenterEnd
-        ) {
-            when (connectionIssue) {
-                ConnectionIssue.NoInternet -> {
-                    ConnectionIssueBadge(
-                        label = "WiFi",
-                        modifier = Modifier.padding(end = 14.dp)
-                    )
-                }
-
-                ConnectionIssue.NoServer -> {
-                    ConnectionIssueBadge(
-                        label = "API",
-                        modifier = Modifier.padding(end = 14.dp)
-                    )
-                }
-
-                ConnectionIssue.None -> Unit
-            }
-        }
+                .background(green)
+        )
 
         Spacer(modifier = Modifier.height(14.dp))
 
@@ -78,6 +65,13 @@ fun QuiLaCarneHeader(
                         modifier = Modifier.size(32.dp)
                     )
                 }
+            }
+
+            if (connectionIssue != ConnectionIssue.None) {
+                ConnectionIssueBadge(
+                    issue = connectionIssue,
+                    modifier = Modifier.align(Alignment.CenterEnd)
+                )
             }
 
             Row(
@@ -125,11 +119,11 @@ fun QuiLaCarneHeader(
 
 @Composable
 private fun ConnectionIssueBadge(
-    label: String,
+    issue: ConnectionIssue,
     modifier: Modifier = Modifier
 ) {
     Box(
-        modifier = modifier.size(34.dp),
+        modifier = modifier.size(42.dp),
         contentAlignment = Alignment.Center
     ) {
         Surface(
@@ -139,21 +133,82 @@ private fun ConnectionIssueBadge(
             border = BorderStroke(2.dp, Color(0xFFD32F2F))
         ) {
             Box(contentAlignment = Alignment.Center) {
-                Text(
-                    text = label,
-                    color = Color(0xFFD32F2F),
-                    fontSize = 8.sp,
-                    fontWeight = FontWeight.ExtraBold
-                )
+                Canvas(modifier = Modifier.size(28.dp)) {
+                    val color = Color(0xFFD32F2F)
+                    val stroke = Stroke(
+                        width = 2.6.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+
+                    when (issue) {
+                        ConnectionIssue.NoInternet -> {
+                            val centerX = size.width / 2f
+                            val bottomY = size.height * 0.78f
+
+                            drawArc(
+                                color = color,
+                                startAngle = 220f,
+                                sweepAngle = 100f,
+                                useCenter = false,
+                                topLeft = Offset(3.dp.toPx(), 2.dp.toPx()),
+                                size = Size(size.width - 6.dp.toPx(), size.height - 2.dp.toPx()),
+                                style = stroke
+                            )
+                            drawArc(
+                                color = color,
+                                startAngle = 225f,
+                                sweepAngle = 90f,
+                                useCenter = false,
+                                topLeft = Offset(8.dp.toPx(), 9.dp.toPx()),
+                                size = Size(size.width - 16.dp.toPx(), size.height - 12.dp.toPx()),
+                                style = stroke
+                            )
+                            drawCircle(
+                                color = color,
+                                radius = 2.6.dp.toPx(),
+                                center = Offset(centerX, bottomY)
+                            )
+                        }
+
+                        ConnectionIssue.NoServer -> {
+                            drawRoundRect(
+                                color = color,
+                                topLeft = Offset(5.dp.toPx(), 6.dp.toPx()),
+                                size = Size(size.width - 10.dp.toPx(), 7.dp.toPx()),
+                                cornerRadius = CornerRadius(2.dp.toPx()),
+                                style = stroke
+                            )
+                            drawRoundRect(
+                                color = color,
+                                topLeft = Offset(5.dp.toPx(), 16.dp.toPx()),
+                                size = Size(size.width - 10.dp.toPx(), 7.dp.toPx()),
+                                cornerRadius = CornerRadius(2.dp.toPx()),
+                                style = stroke
+                            )
+                            drawCircle(
+                                color = color,
+                                radius = 1.2.dp.toPx(),
+                                center = Offset(10.dp.toPx(), 9.5.dp.toPx())
+                            )
+                            drawCircle(
+                                color = color,
+                                radius = 1.2.dp.toPx(),
+                                center = Offset(10.dp.toPx(), 19.5.dp.toPx())
+                            )
+                        }
+
+                        ConnectionIssue.None -> Unit
+                    }
+
+                    drawLine(
+                        color = color,
+                        start = Offset(size.width * 0.18f, size.height * 0.86f),
+                        end = Offset(size.width * 0.86f, size.height * 0.18f),
+                        strokeWidth = 3.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                }
             }
         }
-
-        Box(
-            modifier = Modifier
-                .width(28.dp)
-                .height(3.dp)
-                .rotate(-35f)
-                .background(Color(0xFFD32F2F), RoundedCornerShape(2.dp))
-        )
     }
 }

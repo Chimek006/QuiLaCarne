@@ -2,6 +2,7 @@ package com.example.quilacarne.data.local.dao
 
 import androidx.room.*
 import com.example.quilacarne.data.local.entities.UsersEntity
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface UserDao {
@@ -11,6 +12,12 @@ interface UserDao {
 
     @Query("SELECT * FROM users WHERE is_active = 1 LIMIT 1")
     suspend fun getFirstActiveUser(): UsersEntity?
+
+    @Query("SELECT * FROM users WHERE deleted_at IS NULL ORDER BY username")
+    fun getAllUsersFlow(): Flow<List<UsersEntity>>
+
+    @Query("SELECT * FROM users WHERE deleted_at IS NULL AND LOWER(role) LIKE '%waiter%' ORDER BY username")
+    fun getWaitersFlow(): Flow<List<UsersEntity>>
 
     @Query("SELECT * FROM users WHERE username = :username AND password = :password LIMIT 1")
     suspend fun getUserByUsernameAndPassword(

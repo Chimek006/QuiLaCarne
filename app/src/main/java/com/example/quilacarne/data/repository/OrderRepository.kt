@@ -11,7 +11,7 @@ class OrderRepository {
         return try {
             val response = api.getOrderItemStatuses()
             if (response.isSuccessful && response.body()?.isSuccess == true) {
-                Result.success(response.body()?.data ?: emptyList())
+                Result.success(response.body()?.data.values())
             } else {
                 Result.failure(Exception(response.body()?.message ?: "Błąd pobierania słowników"))
             }

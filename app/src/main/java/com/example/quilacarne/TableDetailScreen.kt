@@ -2,6 +2,8 @@ package com.example.quilacarne
 
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -15,6 +17,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.*
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import com.example.quilacarne.data.local.entities.TableStatusEntity
+import com.example.quilacarne.data.local.entities.UsersEntity
 import com.example.quilacarne.ui.theme.*
 import com.example.quilacarne.ui.viewmodels.TableDetailViewModel
 import java.util.UUID
@@ -31,33 +35,49 @@ fun TableDetailScreen(
 ) {
     val orderItems by viewModel.orderItems.collectAsState()
     val statusDict by viewModel.statusDictionary.collectAsState()
+    val tableStatusId by viewModel.tableStatusId.collectAsState()
+    val waiters by viewModel.waiters.collectAsState()
+    val activeOrderId by viewModel.activeOrderId.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
+    var showWaiterDialog by remember { mutableStateOf(false) }
+    var pendingOccupiedStatus by remember { mutableStateOf<TableStatusOption?>(null) }
+    var stagedStatus by remember(tableId) { mutableStateOf<TableStatusOption?>(null) }
+    var stagedWaiter by remember(tableId) { mutableStateOf<UsersEntity?>(null) }
+    var isSavingChanges by remember { mutableStateOf(false) }
 
     LaunchedEffect(tableId) {
         viewModel.loadTableData(tableId)
     }
 
-    val effectiveToken = remember(orderItems, tableStatus) {
-        val remoteStatus = tableStatus.uppercase()
-        if (remoteStatus == "AVAILABLE" && orderItems.isNotEmpty()) {
+    val statusOptions = remember(statusDict) {
+        buildTableStatusOptions(statusDict)
+    }
+
+    val currentStatusInfo = statusDict.find { it.id == tableStatusId }
+    val currentToken = currentStatusInfo?.token?.uppercase() ?: normalizeStatusToken(tableStatus)
+
+    val effectiveToken = remember(orderItems, currentToken) {
+        if (currentToken == "AVAILABLE" && orderItems.isNotEmpty()) {
             "OCCUPIED"
         } else {
-            remoteStatus
+            currentToken
         }
     }
 
-    val statusInfo = statusDict.find { it.token.uppercase() == effectiveToken }
+    val displayedToken = stagedStatus?.token ?: effectiveToken
+    val statusInfo = statusOptions.find { it.token == displayedToken }
 
-    val displayStatusName = statusInfo?.namePl ?: when (effectiveToken) {
+    val displayStatusName = statusInfo?.name ?: when (displayedToken) {
         "AVAILABLE" -> "Wolny"
         "OCCUPIED" -> "Zajęty"
         "RESERVED" -> "Zarezerwowany"
         "CLEANING" -> "Do sprzątnięcia"
         "OUT_OF_SERVICE" -> "Wyłączony"
-        else -> effectiveToken.lowercase().replaceFirstChar { it.uppercase() }
+        else -> displayedToken.lowercase().replaceFirstChar { it.uppercase() }
     }
 
-    val (statusPillColor, statusTextColor) = getStatusColorsByToken(effectiveToken)
+    val (statusPillColor, statusTextColor) = getStatusColorsByToken(displayedToken)
+    val hasPendingChanges = stagedStatus != null || stagedWaiter != null
 
     val totalPrice = remember(orderItems) {
         orderItems.fold(0.0) { acc, wrapper ->
@@ -70,12 +90,11 @@ fun TableDetailScreen(
 
         Column(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(start = 16.dp, end = 16.dp, top = 140.dp, bottom = 12.dp)
-                .verticalScroll(rememberScrollState()),
+        .fillMaxSize()
+        .padding(start = 16.dp, end = 16.dp, top = 140.dp, bottom = 12.dp)
+        .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Header: Nazwa i Status Pill
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = tableName,
@@ -100,7 +119,25 @@ fun TableDetailScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            ActionButtons()
+            ActionButtons(
+                statusOptions = statusOptions,
+                currentStatusToken = displayedToken,
+                canEditOrder = activeOrderId != null,
+                onStatusSelected = { status ->
+                    if (status.token == "OCCUPIED") {
+                        pendingOccupiedStatus = status
+                        showWaiterDialog = true
+                    } else {
+                        stagedStatus = status
+                        stagedWaiter = null
+                    }
+                },
+                onEditOrder = {
+                    activeOrderId?.let { orderId ->
+                        navController.navigate("order_add/$tableId/$orderId")
+                    }
+                }
+            )
 
             Spacer(modifier = Modifier.height(24.dp))
             Text(
@@ -123,7 +160,7 @@ fun TableDetailScreen(
                         }
                     } else if (orderItems.isEmpty()) {
                         Text(
-                            text = if (effectiveToken == "AVAILABLE") "Brak pozycji - stolik wolny" else "Brak aktywnych zamówień",
+                            text = if (displayedToken == "AVAILABLE") "Brak pozycji - stolik wolny" else "Brak aktywnych zamówień",
                             modifier = Modifier.fillMaxWidth().padding(20.dp),
                             textAlign = TextAlign.Center,
                             color = Color.Gray
@@ -149,14 +186,74 @@ fun TableDetailScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
             Button(
-                onClick = { /* TODO: Implementacja zgłaszania klienta */ },
+                onClick = { navController.navigate("report_client/$tableId") },
                 colors = ButtonDefaults.buttonColors(containerColor = orange),
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(10.dp)
             ) {
                 Text("Zgłoś klienta", fontSize = 17.sp, color = Color.Black, fontWeight = FontWeight.Bold)
             }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            SaveChangesButton(
+                enabled = hasPendingChanges && !isSavingChanges,
+                isSaving = isSavingChanges,
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                onClick = saveClick@{
+                    val status = stagedStatus ?: return@saveClick
+                    isSavingChanges = true
+
+                    if (status.token == "OCCUPIED") {
+                        val waiter = stagedWaiter
+                        if (waiter != null) {
+                            viewModel.assignWaiterAndOccupyTable(
+                                tableId = tableId,
+                                statusToken = status.token,
+                                statusName = status.name,
+                                waiterId = waiter.id
+                            ) { orderId ->
+                                stagedStatus = null
+                                stagedWaiter = null
+                                isSavingChanges = false
+                                navController.navigate("order_add/$tableId/$orderId")
+                            }
+                        } else {
+                            isSavingChanges = false
+                        }
+                    } else {
+                        viewModel.changeTableStatus(
+                            tableId = tableId,
+                            token = status.token,
+                            name = status.name
+                        ) {
+                            stagedStatus = null
+                            stagedWaiter = null
+                            isSavingChanges = false
+                        }
+                    }
+                }
+            )
             Spacer(modifier = Modifier.height(40.dp))
+        }
+
+        if (showWaiterDialog) {
+            WaiterAssignmentDialog(
+                waiters = waiters,
+                onDismiss = {
+                    showWaiterDialog = false
+                    pendingOccupiedStatus = null
+                },
+                onWaiterSelected = { waiter ->
+                    val status = pendingOccupiedStatus
+                    if (status != null) {
+                        stagedStatus = status
+                        stagedWaiter = waiter
+                        showWaiterDialog = false
+                        pendingOccupiedStatus = null
+                    }
+                }
+            )
         }
     }
 }
@@ -209,19 +306,87 @@ fun PriceSummary(totalPrice: Double) {
 }
 
 @Composable
-fun ActionButtons() {
+fun SaveChangesButton(
+    enabled: Boolean,
+    isSaving: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val activeColor = green
+    val inactiveColor = Color(0xFFBDBDBD)
+    val borderColor = if (enabled) activeColor else inactiveColor
+    val textColor = if (enabled) activeColor else Color(0xFF8E8E8E)
+
+    OutlinedButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.5.dp, borderColor),
+        colors = ButtonDefaults.outlinedButtonColors(
+            containerColor = Color(0xFFF6F6F6),
+            disabledContainerColor = Color(0xFFF6F6F6),
+            contentColor = textColor,
+            disabledContentColor = textColor
+        )
+    ) {
+        if (isSaving) {
+            CircularProgressIndicator(
+                color = activeColor,
+                strokeWidth = 3.dp,
+                modifier = Modifier.size(22.dp)
+            )
+        } else {
+            Text("Zapisz", fontSize = 17.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+fun ActionButtons(
+    statusOptions: List<TableStatusOption>,
+    currentStatusToken: String,
+    canEditOrder: Boolean,
+    onStatusSelected: (TableStatusOption) -> Unit,
+    onEditOrder: () -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
     Column {
-        Button(
-            onClick = { /* TODO */ },
-            colors = ButtonDefaults.buttonColors(containerColor = green),
-            modifier = Modifier.fillMaxWidth().height(54.dp),
-            shape = RoundedCornerShape(12.dp)
-        ) {
-            Text("Zmień status", color = Color.White)
+        Box(modifier = Modifier.fillMaxWidth()) {
+            Button(
+                onClick = { expanded = true },
+                colors = ButtonDefaults.buttonColors(containerColor = green),
+                modifier = Modifier.fillMaxWidth().height(54.dp),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Zmień status stolika", color = Color.White)
+            }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+                modifier = Modifier.fillMaxWidth(0.9f)
+            ) {
+                statusOptions.forEach { status ->
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = if (status.token == currentStatusToken) "${status.name} ✓" else status.name,
+                                color = Color.Black
+                            )
+                        },
+                        onClick = {
+                            expanded = false
+                            onStatusSelected(status)
+                        }
+                    )
+                }
+            }
         }
         Spacer(modifier = Modifier.height(12.dp))
         OutlinedButton(
-            onClick = { /* TODO */ },
+            onClick = onEditOrder,
+            enabled = canEditOrder,
             modifier = Modifier.fillMaxWidth().height(54.dp),
             shape = RoundedCornerShape(12.dp)
         ) {
@@ -237,5 +402,91 @@ fun ActionButtons() {
         ) {
             Text("Zmień stolik", color = Color.White)
         }
+    }
+}
+
+@Composable
+private fun WaiterAssignmentDialog(
+    waiters: List<UsersEntity>,
+    onDismiss: () -> Unit,
+    onWaiterSelected: (UsersEntity) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(24.dp),
+        containerColor = Color(0xFFF4F4F4),
+        title = {
+            Text(
+                text = "Przypisz kelnera!",
+                fontWeight = FontWeight.Bold,
+                color = Color.Black,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        text = {
+            if (waiters.isEmpty()) {
+                Text("Brak kelnerów w lokalnej bazie.", color = Color.Gray)
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 320.dp)
+                ) {
+                    items(waiters) { waiter ->
+                        TextButton(
+                            onClick = { onWaiterSelected(waiter) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = waiter.username,
+                                modifier = Modifier.fillMaxWidth(),
+                                color = Color.Black,
+                                fontSize = 16.sp
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Anuluj")
+            }
+        }
+    )
+}
+
+data class TableStatusOption(
+    val token: String,
+    val name: String
+)
+
+private fun buildTableStatusOptions(statuses: List<TableStatusEntity>): List<TableStatusOption> {
+    val statusesByToken = statuses.associateBy { it.token.uppercase() }
+
+    return listOf(
+        "AVAILABLE" to "Wolny",
+        "OCCUPIED" to "Zajęty",
+        "RESERVED" to "Zarezerwowany",
+        "CLEANING" to "Do sprzątnięcia",
+        "OUT_OF_SERVICE" to "Wyłączony"
+    ).map { (token, fallbackName) ->
+        TableStatusOption(
+            token = token,
+            name = statusesByToken[token]?.namePl ?: fallbackName
+        )
+    }
+}
+
+private fun normalizeStatusToken(status: String): String {
+    return when (status.trim().uppercase()) {
+        "AVAILABLE", "WOLNY" -> "AVAILABLE"
+        "OCCUPIED", "ZAJĘTY", "ZAJETY" -> "OCCUPIED"
+        "RESERVED", "ZAREZERWOWANY", "REZERWACJA" -> "RESERVED"
+        "CLEANING", "DO SPRZĄTNIĘCIA", "DO SPRZATNIECIA", "DO SPRZĄTANIA", "DO SPRZATANIA" -> "CLEANING"
+        "OUT_OF_SERVICE", "WYŁĄCZONY", "WYLACZONY" -> "OUT_OF_SERVICE"
+        else -> status.trim().uppercase()
     }
 }

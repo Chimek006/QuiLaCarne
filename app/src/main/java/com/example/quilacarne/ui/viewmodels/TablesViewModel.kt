@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.quilacarne.data.local.entities.RestaurantTableEntity
+import com.example.quilacarne.data.local.entities.TableStatusEntity
 import com.example.quilacarne.data.repository.SyncRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -17,6 +18,13 @@ class TablesViewModel(private val repository: SyncRepository) : ViewModel() {
     val isSyncComplete: StateFlow<Boolean> = _isSyncComplete
 
     val tables: StateFlow<List<RestaurantTableEntity>> = repository.getTablesFlow()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    val statuses: StateFlow<List<TableStatusEntity>> = repository.getTableStatusesFlow()
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),

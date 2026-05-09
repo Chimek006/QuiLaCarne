@@ -17,7 +17,7 @@ interface TableService {
     @GET("api/tables/dictionary")
     suspend fun getStatusDictionary(
         @Header("Accept-Language") lang: String = "pl"
-    ): Response<ApiResponse<List<StatusDictionaryDto>>>
+    ): Response<ApiResponse<DictionaryData<StatusDictionaryDto>>>
 
     @GET("api/sync/tables")
     suspend fun syncTables(

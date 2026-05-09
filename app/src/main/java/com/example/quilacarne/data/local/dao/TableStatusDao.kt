@@ -10,6 +10,9 @@ interface TableStatusDao {
     @Query("SELECT * FROM table_status WHERE deleted_at IS NULL")
     fun getAllStatuses(): Flow<List<TableStatusEntity>>
 
+    @Query("SELECT * FROM table_status WHERE deleted_at IS NULL")
+    suspend fun getAllStatusesOnce(): List<TableStatusEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(statuses: List<TableStatusEntity>)
 }

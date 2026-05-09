@@ -40,7 +40,7 @@ class SettingsRepository(
                 tokenManager.setCurrentUsername(newUsername.trim())
                 Result.success(Unit)
             } else {
-                Result.failure(Exception(response.body()?.message ?: "Błąd API (${response.code()})"))
+                Result.failure(Exception(apiErrorMessage(response.code(), response.body()?.message)))
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -72,14 +72,19 @@ class SettingsRepository(
                 )
                 Result.success(Unit)
             } else {
-                Result.failure(Exception(response.body()?.message ?: "Błąd API (${response.code()})"))
+                Result.failure(Exception(apiErrorMessage(response.code(), response.body()?.message)))
             }
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    suspend fun logout(): Result<Unit> {
+    suspend fun logout(canReachServer: Boolean): Result<Unit> {
+        if (!canReachServer || tokenManager.getAccessToken()?.startsWith("offline_token_") == true) {
+            tokenManager.clearTokens()
+            return Result.success(Unit)
+        }
+
         return try {
             val response = authService.logout()
             tokenManager.clearTokens()
@@ -97,5 +102,12 @@ class SettingsRepository(
 
     private fun now(): String {
         return SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.getDefault()).format(Date())
+    }
+
+    private fun apiErrorMessage(code: Int, message: String?): String {
+        return when (code) {
+            403 -> "API odrzuciło zmianę konta dla tej roli użytkownika (403)"
+            else -> message ?: "Błąd API ($code)"
+        }
     }
 }

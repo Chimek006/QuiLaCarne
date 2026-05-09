@@ -8,7 +8,7 @@ import retrofit2.http.Query
 interface OrderService {
 
     @GET("api/order/item/dictionary")
-    suspend fun getOrderItemStatuses(): Response<ApiResponse<List<DictionaryItem>>>
+    suspend fun getOrderItemStatuses(): Response<ApiResponse<DictionaryData<DictionaryItem>>>
 
     @GET("api/sync/orders")
     suspend fun syncOrders(
@@ -19,6 +19,11 @@ interface OrderService {
     suspend fun syncOrderItems(
         @Query("page") page: Int = 1
     ): Response<ApiResponse<PaginatedList<OrderItemSyncDto>>>
+
+    @GET("api/sync/users")
+    suspend fun syncUsers(
+        @Query("page") page: Int = 1
+    ): Response<ApiResponse<PaginatedList<UserSyncDto>>>
 
     @GET("api/sync/bootstrap")
     suspend fun getBootstrap(): Response<ApiResponse<BootstrapResponse>>

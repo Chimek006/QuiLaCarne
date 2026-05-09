@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -90,13 +91,19 @@ class MainActivity : ComponentActivity() {
                             LocalContext.current
 
                         val db =
-                            AppDatabase.getDatabase(context)
+                            remember(context) {
+                                AppDatabase.getDatabase(context)
+                            }
 
                         val repository =
-                            SyncRepository(db)
+                            remember(db) {
+                                SyncRepository(db)
+                            }
 
                         val viewModel =
-                            TablesViewModel(repository)
+                            remember(repository) {
+                                TablesViewModel(repository)
+                            }
 
                         TablesScreen(
                             navController,
@@ -156,6 +163,78 @@ class MainActivity : ComponentActivity() {
 
                     composable("sync") {
                         SyncScreen(navController)
+                    }
+
+                    composable(
+                        route = "order_add/{tableId}/{orderId}"
+                    ) { backStackEntry ->
+
+                        val tableIdString =
+                            backStackEntry
+                                .arguments
+                                ?.getString("tableId")
+                                ?: ""
+
+                        val orderIdString =
+                            backStackEntry
+                                .arguments
+                                ?.getString("orderId")
+                                ?: ""
+
+                        val tableId = try {
+
+                            UUID.fromString(tableIdString)
+
+                        } catch (e: Exception) {
+
+                            UUID.nameUUIDFromBytes(
+                                tableIdString.toByteArray()
+                            )
+                        }
+
+                        val orderId = try {
+
+                            UUID.fromString(orderIdString)
+
+                        } catch (e: Exception) {
+
+                            UUID.nameUUIDFromBytes(
+                                orderIdString.toByteArray()
+                            )
+                        }
+
+                        OrderAddScreen(
+                            navController = navController,
+                            tableId = tableId,
+                            orderId = orderId
+                        )
+                    }
+
+                    composable(
+                        route = "report_client/{tableId}"
+                    ) { backStackEntry ->
+
+                        val tableIdString =
+                            backStackEntry
+                                .arguments
+                                ?.getString("tableId")
+                                ?: ""
+
+                        val tableId = try {
+
+                            UUID.fromString(tableIdString)
+
+                        } catch (e: Exception) {
+
+                            UUID.nameUUIDFromBytes(
+                                tableIdString.toByteArray()
+                            )
+                        }
+
+                        ReportClientScreen(
+                            navController = navController,
+                            tableId = tableId
+                        )
                     }
 
                     composable(
@@ -232,7 +311,8 @@ class MainActivity : ComponentActivity() {
 
     private suspend fun isServerReachable(): Boolean {
         return try {
-            RetrofitClient.authService.csrf().isSuccessful
+            RetrofitClient.authService.csrf()
+            true
         } catch (e: Exception) {
             false
         }

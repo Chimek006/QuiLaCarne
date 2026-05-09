@@ -13,12 +13,15 @@ import com.example.quilacarne.data.local.entities.OrderEntity
 import com.example.quilacarne.data.local.entities.OrderItemEntity
 import com.example.quilacarne.data.local.entities.RestaurantTableEntity
 import com.example.quilacarne.data.local.entities.TableStatusEntity
+import com.example.quilacarne.data.local.entities.UsersEntity
 import com.example.quilacarne.data.remote.models.CategoryDto
 import com.example.quilacarne.data.remote.models.DishSyncDto
 import com.example.quilacarne.data.remote.models.IngredientSyncDto
 import com.example.quilacarne.data.remote.models.OrderItemSyncDto
 import com.example.quilacarne.data.remote.models.OrderSyncDto
 import com.example.quilacarne.data.remote.models.TableDto
+import com.example.quilacarne.data.remote.models.UserSyncDto
+import com.example.quilacarne.data.remote.models.values
 import com.example.quilacarne.data.remote.network.RetrofitClient
 import kotlinx.coroutines.flow.Flow
 import java.text.SimpleDateFormat
@@ -40,20 +43,29 @@ class SyncRepository(private val database: AppDatabase) {
         return database.restaurantTableDao().getAllTablesFlow()
     }
 
+    fun getTableStatusesFlow(): Flow<List<TableStatusEntity>> {
+        return database.tableStatusDao().getAllStatuses()
+    }
+
     suspend fun syncAllLocalData(): Result<Unit> = runCatching {
         syncMenu().getOrThrow()
         syncTables().getOrThrow()
-        syncOrderItemStatuses()
+        syncUsers()
         syncOrdersAndItems()
     }
 
     suspend fun syncTables(): Result<Unit> {
         return try {
+            syncTableStatuses().onFailure { error ->
+                Log.w("SYNC", "Nie udało się zsynchronizować słownika statusów stolików: ${error.message}")
+            }
+
             val now = getCurrentTimestamp()
             val dao = database.restaurantTableDao()
 
             var page = 1
             val allTablesEntities = mutableListOf<RestaurantTableEntity>()
+            val tableStatusTokens = mutableSetOf<String>()
 
             while (true) {
                 val response = tableService.syncTables(page)
@@ -69,12 +81,19 @@ class SyncRepository(private val database: AppDatabase) {
                 if (items.isEmpty()) break
 
                 items.forEach { dto ->
+                    val statusToken = dto.statusToken
+                        ?: dto.statusTokens.firstOrNull()
+
+                    if (!statusToken.isNullOrBlank()) {
+                        tableStatusTokens.add(statusToken)
+                    }
+
                     allTablesEntities.add(
                         RestaurantTableEntity(
                             id = dto.token.toStableUUID(),
                             tableNumber = dto.tableNumber,
                             capacity = dto.capacity,
-                            statusId = null,
+                            statusId = statusToken?.toStableUUID(),
                             createdAt = now,
                             updatedAt = now
                         )
@@ -86,8 +105,30 @@ class SyncRepository(private val database: AppDatabase) {
 
             if (allTablesEntities.isNotEmpty()) {
                 database.withTransaction {
-                    dao.clearAll()
+                    val knownStatusTokens = database.tableStatusDao()
+                        .getAllStatusesOnce()
+                        .map { it.token.uppercase() }
+                        .toSet()
+
+                    val fallbackStatuses = tableStatusTokens
+                        .filter { it.uppercase() !in knownStatusTokens }
+                        .map { token ->
+                            TableStatusEntity(
+                                id = token.toStableUUID(),
+                                token = token,
+                                namePl = token.toTableStatusName(),
+                                nameEn = token.toTableStatusName(),
+                                createdAt = now,
+                                updatedAt = now
+                            )
+                        }
+
+                    if (fallbackStatuses.isNotEmpty()) {
+                        database.tableStatusDao().insertAll(fallbackStatuses)
+                    }
+
                     dao.insertTables(allTablesEntities)
+                    dao.deleteTablesExcept(allTablesEntities.map { it.id })
                 }
                 Log.d("SYNC", "Zapisano ${allTablesEntities.size} stolików do bazy")
             } else {
@@ -101,8 +142,9 @@ class SyncRepository(private val database: AppDatabase) {
         }
     }
 
-    private suspend fun syncOrderItemStatuses() {
-        val response = orderService.getOrderItemStatuses()
+    private suspend fun syncTableStatuses(): Result<Unit> = runCatching {
+        val now = getCurrentTimestamp()
+        val response = tableService.getStatusDictionary()
 
         if (!response.isSuccessful || response.body()?.isSuccess != true) {
             throw Exception(response.body()?.message ?: "Błąd pobierania statusów")
@@ -110,19 +152,30 @@ class SyncRepository(private val database: AppDatabase) {
 
         val statusEntities = response.body()
             ?.data
-            .orEmpty()
+            .values()
             .map { dto ->
                 TableStatusEntity(
                     id = dto.token.toStableUUID(),
                     token = dto.token,
                     namePl = dto.name,
                     nameEn = dto.name,
-                    createdAt = "",
-                    updatedAt = ""
+                    createdAt = now,
+                    updatedAt = now
                 )
             }
 
         database.tableStatusDao().insertAll(statusEntities)
+    }
+
+    private fun String.toTableStatusName(): String {
+        return when (uppercase()) {
+            "AVAILABLE" -> "Wolny"
+            "OCCUPIED" -> "Zajęty"
+            "RESERVED" -> "Zarezerwowany"
+            "CLEANING" -> "Do sprzątnięcia"
+            "OUT_OF_SERVICE" -> "Wyłączony"
+            else -> lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() }
+        }
     }
 
     private suspend fun syncOrdersAndItems() {
@@ -177,6 +230,43 @@ class SyncRepository(private val database: AppDatabase) {
 
                 database.orderDao().insertOrderItems(items)
             }
+        }
+    }
+
+    private suspend fun syncUsers() {
+        val bootstrapResponse = orderService.getBootstrap()
+
+        if (!bootstrapResponse.isSuccessful || bootstrapResponse.body()?.isSuccess != true) {
+            throw Exception(bootstrapResponse.body()?.message ?: "Błąd pobierania manifestu użytkowników")
+        }
+
+        val totalPages = bootstrapResponse.body()
+            ?.data
+            ?.modules
+            ?.get("users")
+            ?.totalPages
+            ?: 0
+
+        if (totalPages <= 0) return
+
+        for (page in 1..totalPages) {
+            val response = orderService.syncUsers(page = page)
+
+            if (!response.isSuccessful || response.body()?.isSuccess != true) {
+                throw Exception(response.body()?.message ?: "Błąd synchronizacji użytkowników")
+            }
+
+            val usersDto = response.body()
+                ?.data
+                ?.items
+                .orEmpty()
+
+            val users = mutableListOf<UsersEntity>()
+            for (dto in usersDto) {
+                users.add(dto.toUsersEntity())
+            }
+
+            database.userDao().insertUsers(users)
         }
     }
 
@@ -324,9 +414,9 @@ class SyncRepository(private val database: AppDatabase) {
         return OrderEntity(
             id = token.toStableUUID(),
             tableId = tableToken.toStableUUID(),
-            waiterId = null,
+            waiterId = waiterToken?.toStableUUID(),
             statusId = null,
-            totalPrice = totalPrice.toInt(),
+            totalPrice = totalPrice,
             createdAt = createdAt,
             updatedAt = updatedAt
         )
@@ -338,7 +428,22 @@ class SyncRepository(private val database: AppDatabase) {
             orderId = orderToken.toStableUUID(),
             productId = productToken.toStableUUID(),
             quantity = quantity,
-            priceAtTimeOfOrder = priceAtTimeOfOrder.toInt(),
+            priceAtTimeOfOrder = priceAtTimeOfOrder,
+            createdAt = createdAt,
+            updatedAt = updatedAt
+        )
+    }
+
+    private suspend fun UserSyncDto.toUsersEntity(): UsersEntity {
+        val existingUser = database.userDao().getUserByUsername(username)
+        val role = roleTokens.orEmpty().joinToString(",").ifBlank { if (isStaff) "ROLE_WAITER" else "ROLE_CLIENT" }
+
+        return UsersEntity(
+            id = existingUser?.id ?: token.toStableUUID(),
+            username = username,
+            password = existingUser?.password.orEmpty(),
+            isActive = isActive ?: true,
+            role = role,
             createdAt = createdAt,
             updatedAt = updatedAt
         )

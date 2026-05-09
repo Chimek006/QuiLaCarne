@@ -3,8 +3,10 @@ package com.example.quilacarne.ui.viewmodels
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.quilacarne.MainActivity
 import com.example.quilacarne.data.local.AppDatabase
 import com.example.quilacarne.data.local.TokenManager
+import com.example.quilacarne.data.remote.network.ConnectionIssue
 import com.example.quilacarne.data.repository.SettingsRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -105,7 +107,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             _uiState.update { it.copy(isLoggingOut = true, message = null) }
 
-            repository.logout().fold(
+            val canReachServer = MainActivity.networkMonitor.connectionIssue.value == ConnectionIssue.None
+
+            repository.logout(canReachServer).fold(
                 onSuccess = {
                     _uiState.update {
                         it.copy(

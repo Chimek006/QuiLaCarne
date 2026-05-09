@@ -23,17 +23,23 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.example.quilacarne.data.local.entities.RestaurantTableEntity
+import com.example.quilacarne.data.local.entities.TableStatusEntity
 import com.example.quilacarne.ui.theme.*
 import com.example.quilacarne.ui.QuiLaCarneHeader
 import com.example.quilacarne.ui.viewmodels.TablesViewModel
 import java.net.URLEncoder
+import java.util.UUID
 
 @Composable
 fun TablesScreen(navController: NavController, viewModel: TablesViewModel) {
     val tables by viewModel.tables.collectAsState()
+    val statuses by viewModel.statuses.collectAsState()
     val isSyncComplete by viewModel.isSyncComplete.collectAsState()
+    val sortedTables = remember(tables) {
+        tables.sortedBy { it.tableNumber }
+    }
 
-    val isLoading = tables.isEmpty() && !isSyncComplete
+    val isLoading = sortedTables.isEmpty() && !isSyncComplete
 
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFFFDFDFD))) {
         QuiLaCarneHeader(navController = navController, showBack = true)
@@ -55,7 +61,7 @@ fun TablesScreen(navController: NavController, viewModel: TablesViewModel) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = green)
                 }
-            } else if (tables.isEmpty()) {
+            } else if (sortedTables.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
@@ -69,9 +75,11 @@ fun TablesScreen(navController: NavController, viewModel: TablesViewModel) {
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(tables) { table ->
-                        val statusText = getStatusText(table.statusId.toString())
-                        val (pillColor, textColor) = getStatusColors(statusText)
+                    items(sortedTables, key = { it.id }) { table ->
+                        val statusInfo = getStatusInfo(table.statusId, statuses)
+                        val statusToken = statusInfo?.token ?: "AVAILABLE"
+                        val statusText = statusInfo?.namePl ?: getStatusText(statusToken)
+                        val (pillColor, textColor) = getStatusColors(statusToken)
 
                         TableCard(
                             name = "Stolik ${table.tableNumber}",
@@ -82,7 +90,7 @@ fun TablesScreen(navController: NavController, viewModel: TablesViewModel) {
                             bottomColor = green,
                             onClick = { name ->
                                 val encodedName = URLEncoder.encode(name, "utf-8")
-                                val encodedStatus = URLEncoder.encode(statusText, "utf-8")
+                                val encodedStatus = URLEncoder.encode(statusToken, "utf-8")
                                 navController.navigate("table/${table.id}/$encodedName/$encodedStatus")
                             }
                         )
@@ -93,20 +101,28 @@ fun TablesScreen(navController: NavController, viewModel: TablesViewModel) {
     }
 }
 
-private fun getStatusText(statusId: String): String {
-    return when (statusId) {
-        "1" -> "Wolny"
-        "2" -> "Zajęty"
+private fun getStatusInfo(statusId: UUID?, statuses: List<TableStatusEntity>): TableStatusEntity? {
+    return statuses.find { it.id == statusId }
+}
+
+private fun getStatusText(token: String): String {
+    return when (token.uppercase()) {
+        "AVAILABLE" -> "Wolny"
+        "OCCUPIED" -> "Zajęty"
+        "RESERVED" -> "Zarezerwowany"
+        "CLEANING" -> "Do sprzątnięcia"
+        "OUT_OF_SERVICE" -> "Wyłączony"
         else -> "Wolny"
     }
 }
 
 private fun getStatusColors(status: String): Pair<Color, Color> {
-    return when (status.lowercase()) {
-        "available", "wolny" -> Color(0xFF00D34A) to Color.Black
-        "occupied", "zajęty" -> Color.White to Color.Black
-        "reserved", "rezerwacja" -> Color(0xFFFF9800) to Color.Black
-        "cleaning", "do sprzątania" -> Color(0xFF3A3A3A) to Color.White
+    return when (status.uppercase()) {
+        "AVAILABLE" -> Color(0xFF00D34A) to Color.Black
+        "OCCUPIED" -> Color.White to Color.Black
+        "RESERVED" -> Color(0xFFFF9800) to Color.Black
+        "CLEANING" -> Color(0xFF3A3A3A) to Color.White
+        "OUT_OF_SERVICE" -> Color.Red to Color.White
         else -> Color.LightGray to Color.Black
     }
 }

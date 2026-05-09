@@ -6,7 +6,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -38,6 +37,19 @@ fun SettingsScreen(
     var oldPassword by remember { mutableStateOf("") }
     var newPassword by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
+    val textFieldColors = OutlinedTextFieldDefaults.colors(
+        focusedTextColor = Color.Black,
+        unfocusedTextColor = Color.Black,
+        disabledTextColor = Color.Gray,
+        focusedLabelColor = green,
+        unfocusedLabelColor = Color.Gray,
+        focusedBorderColor = green,
+        unfocusedBorderColor = Color.Gray,
+        cursorColor = green,
+        focusedContainerColor = Color.White,
+        unfocusedContainerColor = Color.White,
+        disabledContainerColor = Color.White
+    )
 
     LaunchedEffect(state.message) {
         state.message?.let { message ->
@@ -86,9 +98,9 @@ fun SettingsScreen(
                     OutlinedTextField(
                         value = username,
                         onValueChange = { username = it },
-                        label = { Text("Nazwa") },
                         singleLine = true,
                         enabled = !state.isSavingUsername,
+                        colors = textFieldColors,
                         modifier = Modifier.fillMaxWidth()
                     )
 
@@ -118,6 +130,7 @@ fun SettingsScreen(
                         label = { Text("Obecne hasło") },
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
+                        colors = textFieldColors,
                         modifier = Modifier.fillMaxWidth()
                     )
 
@@ -127,6 +140,7 @@ fun SettingsScreen(
                         label = { Text("Nowe hasło") },
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
+                        colors = textFieldColors,
                         modifier = Modifier.fillMaxWidth()
                     )
 
@@ -136,6 +150,7 @@ fun SettingsScreen(
                         label = { Text("Powtórz nowe hasło") },
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
+                        colors = textFieldColors,
                         modifier = Modifier.fillMaxWidth()
                     )
 
@@ -168,14 +183,15 @@ fun SettingsScreen(
                 }
 
                 SettingsSection(title = "Synchronizacja") {
-                    OutlinedButton(
+                    Button(
                         onClick = { navController.navigate("sync") },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF1976D2)
+                        ),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Icon(Icons.Default.Settings, contentDescription = null)
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text("Synchronizuj teraz")
+                        Text("Synchronizuj teraz", color = Color.White)
                     }
                 }
 
