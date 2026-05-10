@@ -486,9 +486,10 @@ class SyncRepository(
                         return@runCatching remoteUrl
                     }
 
-                    val body = response.body
+                    val stream = response.body?.byteStream() ?: return@runCatching remoteUrl
+
                     imageFile.outputStream().use { output ->
-                        body.byteStream().use { input ->
+                        stream.use { input ->
                             input.copyTo(output)
                         }
                     }
