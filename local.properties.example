@@ -1,2 +1,2 @@
 sdk.dir=C\:\\PATH\\AppData\\Local\\Android\\Sdk
-BASE_URL="http://IPADRESS:8080/"
+BASE_URL=https://api.quilacarne.com.pl/api/

@@ -97,10 +97,22 @@ class SyncRepository(
     }
 
     private suspend fun ensureServerReachable() {
-        val response = RetrofitClient.authService.csrf()
+        try {
+            Log.d("SYNC", "Checking csrf...")
 
-        if (!response.isSuccessful) {
-            throw Exception("Serwer API jest niedostępny")
+            val response = RetrofitClient.authService.csrf()
+
+            Log.d("SYNC", "Code: ${response.code()}")
+            Log.d("SYNC", "Body: ${response.body()}")
+            Log.d("SYNC", "Error: ${response.errorBody()?.string()}")
+
+            if (!response.isSuccessful) {
+                throw Exception("Serwer API jest niedostępny")
+            }
+
+        } catch (e: Exception) {
+            Log.e("SYNC", "CSRF failed", e)
+            throw e
         }
     }
 
@@ -508,6 +520,7 @@ class SyncRepository(
 
     private fun normalizeImageUrl(imageUrl: String?): String? {
         val trimmedUrl = imageUrl?.trim()?.takeIf { it.isNotBlank() } ?: return null
+
         val resolvedUrl = if (trimmedUrl.startsWith("http://") || trimmedUrl.startsWith("https://")) {
             trimmedUrl
         } else {
@@ -517,14 +530,10 @@ class SyncRepository(
                 trimmedUrl
             }
         }
-        val apiHost = runCatching { URI(BuildConfig.BASE_URL).host }.getOrNull()
-        val deviceHost = apiHost
-            ?.takeUnless { it == "localhost" || it == "127.0.0.1" }
-            ?: "192.168.100.12"
 
         return resolvedUrl
-            .replace("localhost", deviceHost)
-            .replace("127.0.0.1", deviceHost)
+            .replace("localhost", URI(BuildConfig.BASE_URL).host)
+            .replace("127.0.0.1", URI(BuildConfig.BASE_URL).host)
     }
 
     private fun getImageExtension(imageUrl: String): String {
