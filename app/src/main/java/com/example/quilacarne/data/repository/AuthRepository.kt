@@ -6,24 +6,6 @@ import com.example.quilacarne.data.local.entities.UsersEntity
 import com.example.quilacarne.data.remote.models.LoginRequest
 import com.example.quilacarne.data.remote.network.RetrofitClient
 import java.util.UUID
-import com.example.quilacarne.data.local.dao.UserDao
-
-enum class LoginSource {
-    Online,
-    OfflineNoInternet,
-    OfflineServerUnavailable
-}
-
-data class AuthLoginResult(
-    val token: String,
-    val refreshToken: String,
-    val source: LoginSource
-)
-
-data class AuthTokens(
-    val accessToken: String,
-    val refreshToken: String
-)
 
 class AuthRepository(private val database: AppDatabase) {
 

@@ -13,20 +13,32 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.example.quilacarne.ui.QuiLaCarneHeader
 import com.example.quilacarne.ui.theme.green
 import com.example.quilacarne.ui.theme.lightGray
+import com.example.quilacarne.ui.viewmodels.ReportClientUiState
+import com.example.quilacarne.ui.viewmodels.ReportClientViewModel
 import java.util.UUID
 
 @Composable
 fun ReportClientScreen(
     navController: NavController,
-    tableId: UUID
+    tableId: UUID,
+    viewModel: ReportClientViewModel = viewModel()
 ) {
     var reason by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
+    val uiState by viewModel.uiState.collectAsState()
     val canSend = reason.isNotBlank() && description.isNotBlank()
+    val isSending = uiState is ReportClientUiState.Sending
+
+    LaunchedEffect(uiState) {
+        if (uiState is ReportClientUiState.Sent) {
+            navController.popBackStack()
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -43,7 +55,7 @@ fun ReportClientScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Text(
-                text = "Zgłoś klienta",
+                text = "Zglos klienta",
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.Black
@@ -53,7 +65,7 @@ fun ReportClientScreen(
                 value = reason,
                 onValueChange = { reason = it },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("Powód zgłoszenia") },
+                label = { Text("Powod zgloszenia") },
                 singleLine = true,
                 shape = RoundedCornerShape(12.dp),
                 colors = reportTextFieldColors()
@@ -65,13 +77,21 @@ fun ReportClientScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 160.dp),
-                label = { Text("Dokładny opis") },
+                label = { Text("Dokladny opis") },
                 shape = RoundedCornerShape(12.dp),
                 minLines = 6,
                 colors = reportTextFieldColors()
             )
 
             Spacer(modifier = Modifier.height(8.dp))
+
+            if (uiState is ReportClientUiState.Error) {
+                Text(
+                    text = (uiState as ReportClientUiState.Error).message,
+                    color = Color.Red,
+                    fontSize = 13.sp
+                )
+            }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -89,8 +109,10 @@ fun ReportClientScreen(
                 }
 
                 Button(
-                    onClick = { navController.popBackStack() },
-                    enabled = canSend,
+                    onClick = {
+                        viewModel.submitReport(tableId, reason, description)
+                    },
+                    enabled = canSend && !isSending,
                     modifier = Modifier
                         .weight(1f)
                         .height(52.dp),
@@ -100,7 +122,10 @@ fun ReportClientScreen(
                         disabledContainerColor = lightGray
                     )
                 ) {
-                    Text("Wyślij", color = if (canSend) Color.White else Color.Gray)
+                    Text(
+                        text = if (isSending) "Wysylanie..." else "Wyslij",
+                        color = if (canSend && !isSending) Color.White else Color.Gray
+                    )
                 }
             }
         }

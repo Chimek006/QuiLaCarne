@@ -7,22 +7,22 @@ import retrofit2.http.Header
 import retrofit2.http.Query
 
 interface DishService {
-    @GET("api/sync/dishes")
+    @GET("sync/dishes")
     suspend fun syncDishes(
         @Query("page") page: Int = 1
     ): Response<ApiResponse<PaginatedList<DishSyncDto>>>
 
-    @GET("api/sync/ingredients")
+    @GET("sync/ingredients")
     suspend fun syncIngredients(
         @Query("page") page: Int = 1
     ): Response<ApiResponse<PaginatedList<IngredientSyncDto>>>
 
-    @GET("api/dishes/dictionary")
+    @GET("dishes/dictionary")
     suspend fun getCategories(
         @Header("Accept-Language") lang: String = "pl"
     ): Response<ApiResponse<CategoriesData>>
 
-    @GET("api/dishes/allergens/dictionary")
+    @GET("dishes/allergens/dictionary")
     suspend fun getAllergens(
         @Header("Accept-Language") lang: String = "pl"
     ): Response<ApiResponse<AllergenDictionaryData>>

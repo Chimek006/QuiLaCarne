@@ -5,6 +5,7 @@ import com.example.quilacarne.data.local.TokenManager
 import com.example.quilacarne.data.remote.models.RefreshRequest
 import com.example.quilacarne.data.remote.services.AuthService
 import okhttp3.Authenticator
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.Route
@@ -17,8 +18,13 @@ class TokenAuthenticator(private val tokenManager: TokenManager) : Authenticator
 
         val refreshToken = tokenManager.getRefreshToken() ?: return null
 
+        val refreshClient = OkHttpClient.Builder()
+            .addInterceptor(ApiLoggingInterceptor())
+            .build()
+
         val refreshService = Retrofit.Builder()
             .baseUrl(BuildConfig.BASE_URL)
+            .client(refreshClient)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
             .create(AuthService::class.java)

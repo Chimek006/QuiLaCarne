@@ -10,6 +10,9 @@ interface RestaurantTableDao {
     @Query("SELECT * FROM restaurant_tables")
     fun getAllTablesFlow(): Flow<List<RestaurantTableEntity>>
 
+    @Query("SELECT * FROM restaurant_tables")
+    suspend fun getAllTablesOnce(): List<RestaurantTableEntity>
+
     @Query("SELECT * FROM restaurant_tables WHERE id = :tableId LIMIT 1")
     fun getTableById(tableId: UUID): Flow<RestaurantTableEntity?>
 

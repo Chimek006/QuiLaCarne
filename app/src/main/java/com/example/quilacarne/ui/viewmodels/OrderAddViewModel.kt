@@ -1,6 +1,7 @@
 package com.example.quilacarne.ui.viewmodels
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.room.withTransaction
@@ -10,6 +11,7 @@ import com.example.quilacarne.data.local.entities.DishEntity
 import com.example.quilacarne.data.local.entities.OrderItemEntity
 import com.example.quilacarne.data.local.entities.RestaurantTableEntity
 import com.example.quilacarne.data.local.relations.OrderItemWithDish
+import com.example.quilacarne.data.repository.SyncRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -24,6 +26,7 @@ import java.util.UUID
 
 class OrderAddViewModel(application: Application) : AndroidViewModel(application) {
     private val db = AppDatabase.getDatabase(application)
+    private val syncRepository = SyncRepository(db, application.applicationContext)
 
     private val _selectedCategoryId = MutableStateFlow<UUID?>(null)
     val selectedCategoryId: StateFlow<UUID?> = _selectedCategoryId
@@ -140,6 +143,12 @@ class OrderAddViewModel(application: Application) : AndroidViewModel(application
 
         viewModelScope.launch {
             val now = getCurrentTimestamp()
+            val existingItemsBeforeSave = db.orderDao().getItemsForOrderOnce(currentOrderId)
+
+            if (!saveRemoteChanges(currentOrderId, existingItemsBeforeSave, pendingItems)) {
+                onSaved()
+                return@launch
+            }
 
             db.withTransaction {
                 val existingItems = db.orderDao().getItemsForOrderOnce(currentOrderId)
@@ -201,6 +210,49 @@ class OrderAddViewModel(application: Application) : AndroidViewModel(application
             .sumOf { it.priceAtTimeOfOrder * it.quantity }
 
         db.orderDao().updateOrderTotal(orderId, total, now)
+    }
+
+    private suspend fun saveRemoteChanges(
+        orderId: UUID,
+        existingItems: List<OrderItemEntity>,
+        pendingItems: List<PendingOrderItem>
+    ): Boolean {
+        val existingByDish = existingItems
+            .mapNotNull { item -> item.productId?.let { dishId -> dishId to item.quantity } }
+            .groupBy({ it.first }, { it.second })
+            .mapValues { (_, quantities) -> quantities.sum() }
+
+        val pendingByDish = pendingItems
+            .mapNotNull { item -> item.dishId?.let { dishId -> dishId to item.quantity } }
+            .groupBy({ it.first }, { it.second })
+            .mapValues { (_, quantities) -> quantities.sum() }
+
+        val dishIds = existingByDish.keys + pendingByDish.keys
+        val additions = mutableMapOf<UUID, Int>()
+        val removals = mutableMapOf<UUID, Int>()
+
+        dishIds.forEach { dishId ->
+            val existingQuantity = existingByDish[dishId] ?: 0
+            val pendingQuantity = pendingByDish[dishId] ?: 0
+            val delta = pendingQuantity - existingQuantity
+
+            when {
+                delta > 0 -> additions[dishId] = delta
+                delta < 0 -> removals[dishId] = -delta
+            }
+        }
+
+        if (additions.isEmpty() && removals.isEmpty()) {
+            return true
+        }
+
+        return syncRepository.saveReservationItemDeltas(
+            orderId = orderId,
+            additions = additions,
+            removals = removals
+        ).onFailure { error ->
+            Log.w("ORDER_REMOTE", "Nie udalo sie zapisac pozycji zamowienia w API: ${error.message}")
+        }.isSuccess
     }
 
     private fun getCurrentTimestamp(): String =

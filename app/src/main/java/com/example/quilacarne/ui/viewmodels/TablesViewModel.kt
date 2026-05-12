@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.example.quilacarne.data.local.entities.RestaurantTableEntity
 import com.example.quilacarne.data.local.entities.TableStatusEntity
 import com.example.quilacarne.data.repository.SyncRepository
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -18,6 +20,11 @@ class TablesViewModel(private val repository: SyncRepository) : ViewModel() {
 
     private val _isSyncComplete = MutableStateFlow(true)
     val isSyncComplete: StateFlow<Boolean> = _isSyncComplete
+    private var liveSyncJob: Job? = null
+
+    init {
+        startLiveSync()
+    }
 
     val tables: StateFlow<List<RestaurantTableEntity>> = repository.getTablesFlow()
         .stateIn(
@@ -39,14 +46,18 @@ class TablesViewModel(private val repository: SyncRepository) : ViewModel() {
         repository.getOrdersFlow(),
         repository.getUsersFlow()
     ) { tables, statuses, orders, users ->
-        val occupiedStatusIds = statuses
-            .filter { it.token.uppercase() == "OCCUPIED" }
-            .map { it.id }
-            .toSet()
+        val statusesById = statuses.associateBy { it.id }
 
         tables
-            .filter { it.statusId in occupiedStatusIds }
             .mapNotNull { table ->
+                val tableStatusToken = table.statusId
+                    ?.let { statusesById[it]?.token }
+                    ?.uppercase()
+
+                if (tableStatusToken != "OCCUPIED") {
+                    return@mapNotNull null
+                }
+
                 val waiterName = orders
                     .firstOrNull { it.tableId == table.id }
                     ?.waiterId
@@ -66,7 +77,7 @@ class TablesViewModel(private val repository: SyncRepository) : ViewModel() {
     fun refreshTables() {
         viewModelScope.launch {
             try {
-                val result = repository.syncTables()
+                val result = repository.syncOperationalData()
 
                 result.onSuccess {
                     Log.d("TABLES_SYNC", "Synchronizacja stolików zakończona")
@@ -81,5 +92,24 @@ class TablesViewModel(private val repository: SyncRepository) : ViewModel() {
                 _isSyncComplete.value = true
             }
         }
+    }
+
+    private fun startLiveSync() {
+        if (liveSyncJob?.isActive == true) return
+
+        liveSyncJob = viewModelScope.launch {
+            while (true) {
+                repository.syncOperationalData()
+                    .onFailure { error ->
+                        Log.w("TABLES_SYNC", "Okresowa synchronizacja nie powiodla sie: ${error.message}")
+                    }
+                delay(5_000L)
+            }
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        liveSyncJob?.cancel()
     }
 }

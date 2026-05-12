@@ -9,19 +9,19 @@ import retrofit2.http.POST
 
 interface AuthService {
 
-    @POST("api/auth/login")
+    @POST("auth/login")
     suspend fun login(
         @Body request: LoginRequest
     ): Response<ApiResponse<LoginData>>
 
-    @POST("api/auth/refresh")
+    @POST("auth/refresh")
     fun refresh(
         @Body request: RefreshRequest
     ): Call<ApiResponse<TokenResponse>>
 
-    @POST("api/auth/logout")
+    @POST("auth/logout")
     suspend fun logout(): Response<ApiResponse<Unit>>
 
-    @GET("api/auth/csrf")
+    @GET("auth/csrf")
     suspend fun csrf(): Response<ApiResponse<String>>
 }

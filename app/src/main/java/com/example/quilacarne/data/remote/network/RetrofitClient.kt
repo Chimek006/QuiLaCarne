@@ -1,6 +1,7 @@
 package com.example.quilacarne.data.remote.network
 
 import android.content.Context
+import android.util.Log
 import com.example.quilacarne.BuildConfig
 import com.example.quilacarne.data.local.TokenManager
 import com.example.quilacarne.data.remote.services.AuthService
@@ -19,17 +20,21 @@ object RetrofitClient {
     fun init(context: Context) {
         if (tokenManager == null) {
             tokenManager = TokenManager(context)
+            Log.d("API_HTTP", "Retrofit BASE_URL=$BASE_URL")
         }
     }
 
     private fun getTokenManager() = tokenManager!!
 
-    private val loggingInterceptor = HttpLoggingInterceptor().apply {
-        level = HttpLoggingInterceptor.Level.BODY
+    private val loggingInterceptor = HttpLoggingInterceptor { message ->
+        Log.d("RETROFIT_HTTP", message)
+    }.apply {
+        level = HttpLoggingInterceptor.Level.BASIC
     }
 
     private val authOkHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
+            .addInterceptor(ApiLoggingInterceptor())
             .addInterceptor(loggingInterceptor)
             .build()
     }
@@ -37,6 +42,7 @@ object RetrofitClient {
     private val authenticatedOkHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .addInterceptor(AuthInterceptor(getTokenManager()))
+            .addInterceptor(ApiLoggingInterceptor())
             .addInterceptor(loggingInterceptor)
             .authenticator(TokenAuthenticator(getTokenManager()))
             .build()

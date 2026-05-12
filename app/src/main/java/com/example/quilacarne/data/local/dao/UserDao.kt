@@ -10,6 +10,9 @@ interface UserDao {
     @Query("SELECT * FROM users WHERE username = :username LIMIT 1")
     suspend fun getUserByUsername(username: String): UsersEntity?
 
+    @Query("SELECT * FROM users WHERE username = :username LIMIT 1")
+    fun getUserByUsernameFlow(username: String): Flow<UsersEntity?>
+
     @Query("SELECT * FROM users WHERE is_active = 1 LIMIT 1")
     suspend fun getFirstActiveUser(): UsersEntity?
 

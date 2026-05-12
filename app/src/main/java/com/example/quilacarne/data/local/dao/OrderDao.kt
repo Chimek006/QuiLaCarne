@@ -12,6 +12,9 @@ interface OrderDao {
     @Query("SELECT * FROM orders WHERE deleted_at IS NULL ORDER BY updated_at DESC, created_at DESC")
     fun getAllOrders(): Flow<List<OrderEntity>>
 
+    @Query("SELECT * FROM orders WHERE deleted_at IS NULL ORDER BY updated_at DESC, created_at DESC")
+    suspend fun getAllOrdersOnce(): List<OrderEntity>
+
     @Transaction
     @Query("SELECT * FROM order_items WHERE order_id = :orderId AND deleted_at IS NULL")
     fun getItemsForOrder(orderId: UUID): Flow<List<OrderItemWithDish>>

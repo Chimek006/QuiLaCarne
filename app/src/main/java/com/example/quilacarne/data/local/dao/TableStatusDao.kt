@@ -13,6 +13,9 @@ interface TableStatusDao {
     @Query("SELECT * FROM table_status WHERE deleted_at IS NULL")
     suspend fun getAllStatusesOnce(): List<TableStatusEntity>
 
+    @Query("SELECT * FROM table_status WHERE id = :statusId LIMIT 1")
+    suspend fun getStatusByIdOnce(statusId: UUID): TableStatusEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(statuses: List<TableStatusEntity>)
 }

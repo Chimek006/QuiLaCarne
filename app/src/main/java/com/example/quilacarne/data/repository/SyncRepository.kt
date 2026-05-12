@@ -23,37 +23,54 @@ import com.example.quilacarne.data.remote.models.DishSyncDto
 import com.example.quilacarne.data.remote.models.IngredientSyncDto
 import com.example.quilacarne.data.remote.models.OrderItemSyncDto
 import com.example.quilacarne.data.remote.models.OrderSyncDto
+import com.example.quilacarne.data.remote.models.ReportCreateRequest
+import com.example.quilacarne.data.remote.models.ReservationCreateRequest
+import com.example.quilacarne.data.remote.models.ReservationDishRequest
+import com.example.quilacarne.data.remote.models.ReservationSyncDto
 import com.example.quilacarne.data.remote.models.TableDto
 import com.example.quilacarne.data.remote.models.UserSyncDto
 import com.example.quilacarne.data.remote.models.values
+import com.example.quilacarne.data.remote.network.ApiLoggingInterceptor
 import com.example.quilacarne.data.remote.network.AuthInterceptor
+import com.example.quilacarne.data.remote.network.RemoteTokenStore
 import com.example.quilacarne.data.remote.network.RetrofitClient
 import com.example.quilacarne.data.remote.network.TokenAuthenticator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import retrofit2.Response
 import java.io.File
 import java.net.URI
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 import java.util.UUID
 
 class SyncRepository(
     private val database: AppDatabase,
     private val appContext: Context? = null
 ) {
+    companion object {
+        private val operationalSyncMutex = Mutex()
+    }
+
     private val dishService = RetrofitClient.dishService
     private val tableService = RetrofitClient.tableService
     private val orderService = RetrofitClient.orderService
+    private val tokenStore: RemoteTokenStore? = appContext?.let { RemoteTokenStore(it) }
 
     private val imageClient: OkHttpClient? by lazy {
         appContext?.let { context ->
             val tokenManager = TokenManager(context)
             OkHttpClient.Builder()
                 .addInterceptor(AuthInterceptor(tokenManager))
+                .addInterceptor(ApiLoggingInterceptor("API_IMAGE_HTTP"))
                 .authenticator(TokenAuthenticator(tokenManager))
                 .build()
         }
@@ -80,20 +97,34 @@ class SyncRepository(
         return database.userDao().getAllUsersFlow()
     }
 
-    suspend fun syncAllLocalData(clearBeforeSync: Boolean = false): Result<Unit> = runCatching {
-        val preservedPasswords = database.userDao()
-            .getAllUsersOnce()
-            .associate { it.username to it.password }
+    suspend fun syncAllLocalData(clearBeforeSync: Boolean = false): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val preservedPasswords = database.userDao()
+                .getAllUsersOnce()
+                .associate { it.username to it.password }
 
-        if (clearBeforeSync) {
-            ensureServerReachable()
-            database.clearAllTables()
+            if (clearBeforeSync) {
+                ensureServerReachable()
+                database.clearAllTables()
+            }
+
+            syncMenu().getOrThrow()
+            syncTables().getOrThrow()
+            syncUsers(preservedPasswords)
+            syncReservations()
+            syncOrdersAndItems()
         }
+    }
 
-        syncMenu().getOrThrow()
-        syncTables().getOrThrow()
-        syncUsers(preservedPasswords)
-        syncOrdersAndItems()
+    suspend fun syncOperationalData(): Result<Unit> = withContext(Dispatchers.IO) {
+        operationalSyncMutex.withLock {
+            runCatching {
+                syncTables().getOrThrow()
+                syncUsers()
+                syncReservations()
+                syncOrdersAndItems()
+            }
+        }
     }
 
     private suspend fun ensureServerReachable() {
@@ -128,6 +159,15 @@ class SyncRepository(
             var page = 1
             val allTablesEntities = mutableListOf<RestaurantTableEntity>()
             val tableStatusTokens = mutableSetOf<String>()
+            val existingStatusTokensByTableId = dao
+                .getAllTablesOnce()
+                .associate { table ->
+                    table.id to table.statusId?.let { statusId ->
+                        database.tableStatusDao()
+                            .getStatusByIdOnce(statusId)
+                            ?.token
+                    }
+                }
 
             while (true) {
                 val response = tableService.syncTables(page)
@@ -143,16 +183,17 @@ class SyncRepository(
                 if (items.isEmpty()) break
 
                 items.forEach { dto ->
-                    val statusToken = dto.statusToken
-                        ?: dto.statusTokens.firstOrNull()
+                    val tableId = dto.token.toStableUUID()
+                    val statusToken = dto.currentStatusToken()
+                        ?: existingStatusTokensByTableId[tableId]
 
                     if (!statusToken.isNullOrBlank()) {
                         tableStatusTokens.add(statusToken)
                     }
 
                     allTablesEntities.add(
-                        RestaurantTableEntity(
-                            id = dto.token.toStableUUID(),
+                            RestaurantTableEntity(
+                            id = tableId,
                             tableNumber = dto.tableNumber,
                             capacity = dto.capacity,
                             statusId = statusToken?.toStableUUID(),
@@ -160,6 +201,7 @@ class SyncRepository(
                             updatedAt = now
                         )
                     )
+                    tokenStore?.saveToken("table", tableId, dto.token)
                 }
 
                 page++
@@ -229,6 +271,30 @@ class SyncRepository(
         database.tableStatusDao().insertAll(statusEntities)
     }
 
+    private fun TableDto.currentStatusToken(): String? {
+        val tokens = buildList {
+            statusToken?.takeIf { it.isNotBlank() }?.let { add(it) }
+            addAll(statusTokens.filter { it.isNotBlank() })
+        }
+
+        if (tokens.isEmpty()) return null
+
+        val tokensByName = tokens.associateBy { it.uppercase(Locale.US) }
+        val priority = listOf(
+            "OUT_OF_SERVICE",
+            "CLEANING",
+            "OCCUPIED",
+            "RESERVED",
+            "AVAILABLE"
+        )
+
+        priority.forEach { preferredToken ->
+            tokensByName[preferredToken]?.let { return it }
+        }
+
+        return tokens.first()
+    }
+
     private fun String.toTableStatusName(): String {
         return when (uppercase()) {
             "AVAILABLE" -> "Wolny"
@@ -260,12 +326,17 @@ class SyncRepository(
                     throw Exception(response.body()?.message ?: "Błąd synchronizacji zamówień")
                 }
 
-                val orders = response.body()
+                val orderDtos = response.body()
                     ?.data
                     ?.items
                     .orEmpty()
+
+                val orders = orderDtos
                     .map { dto ->
-                        dto.toOrderEntity()
+                        val order = dto.toOrderEntity()
+                        tokenStore?.saveToken("order", order.id, dto.token)
+                        tokenStore?.saveOrderReservationToken(order.id, dto.reservationToken)
+                        order
                     }
 
                 database.orderDao().insertOrders(orders)
@@ -287,7 +358,9 @@ class SyncRepository(
                     ?.items
                     .orEmpty()
                     .map { dto ->
-                        dto.toOrderItemEntity()
+                        val item = dto.toOrderItemEntity()
+                        tokenStore?.saveToken("orderItem", item.id, dto.token)
+                        item
                     }
 
                 database.orderDao().insertOrderItems(items)
@@ -325,11 +398,81 @@ class SyncRepository(
 
             val users = mutableListOf<UsersEntity>()
             for (dto in usersDto) {
-                users.add(dto.toUsersEntity(preservedPasswords))
+                val user = dto.toUsersEntity(preservedPasswords)
+                tokenStore?.saveToken("user", user.id, dto.token)
+                users.add(user)
             }
 
             database.userDao().insertUsers(users)
         }
+    }
+
+    private suspend fun syncReservations() {
+        var page = 1
+        val now = Date()
+        val latestActiveReservationByTable = mutableMapOf<UUID, ReservationSyncDto>()
+
+        while (true) {
+            val response = orderService.syncReservations(page = page)
+
+            if (!response.isSuccessful || response.body()?.isSuccess != true) {
+                throw Exception(response.body()?.message ?: "Błąd synchronizacji rezerwacji")
+            }
+
+            val reservations = response.body()?.data?.items.orEmpty()
+            if (reservations.isEmpty()) break
+
+            reservations.forEach { reservation ->
+                storeReservationTokens(reservation)
+
+                if (reservation.isCurrentActiveReservation(now)) {
+                    val tableId = reservation.tableToken.toStableUUID()
+                    val current = latestActiveReservationByTable[tableId]
+
+                    if (current == null || reservation.updatedAt >= current.updatedAt) {
+                        latestActiveReservationByTable[tableId] = reservation
+                    }
+                }
+            }
+
+            page++
+        }
+
+        latestActiveReservationByTable.forEach { (tableId, reservation) ->
+            tokenStore?.saveTableReservationToken(tableId, reservation.token)
+        }
+    }
+
+    private fun storeReservationTokens(reservation: ReservationSyncDto) {
+        val reservationId = reservation.token.toStableUUID()
+
+        tokenStore?.saveToken("reservation", reservationId, reservation.token)
+        tokenStore?.saveReservationUserToken(reservation.token, reservation.userToken)
+    }
+
+    private fun ReservationSyncDto.isActiveReservation(): Boolean {
+        val inactiveStatuses = setOf(
+            "ABSENT",
+            "CANCELED",
+            "CANCELLED",
+            "COMPLETED",
+            "DONE",
+            "FINISHED"
+        )
+
+        return statusTokens.none { it.uppercase() in inactiveStatuses }
+    }
+
+    private fun ReservationSyncDto.isCurrentActiveReservation(now: Date): Boolean {
+        if (!isActiveReservation()) return false
+
+        val start = parseApiTimestamp(startTime)
+        val end = parseApiTimestamp(endTime)
+
+        val hasStarted = start == null || !now.before(start)
+        val hasNotEnded = end == null || now.before(end)
+
+        return hasStarted && hasNotEnded
     }
 
     suspend fun syncMenu(): Result<Unit> = runCatching {
@@ -431,6 +574,7 @@ class SyncRepository(
 
         allDishesDto.forEach { dto ->
             val dishId = dto.token.toStableUUID()
+            tokenStore?.saveToken("dish", dishId, dto.token)
 
             val categoryId = dto.categoryToken
                 ?.takeIf { it.isNotBlank() }
@@ -468,6 +612,285 @@ class SyncRepository(
             database.ingredientDao().insertIngredientAllergens(ingredientAllergenLinks)
             database.dishDao().insertDishes(dishEntities)
             database.dishDao().insertCompositions(compositionEntities)
+        }
+    }
+
+    suspend fun changeTableStatusRemote(
+        tableId: UUID,
+        statusToken: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val tableToken = getRemoteToken("table", tableId)
+
+            val response = when (statusToken.uppercase()) {
+                "AVAILABLE" -> {
+                    releaseActiveTableReservation(tableId)
+                    syncOperationalData()
+                        .onFailure { error ->
+                            Log.w("SYNC", "Nie udalo sie odswiezyc stolikow po zwolnieniu: ${error.message}")
+                        }
+                    applyLocalTableStatus(tableId, statusToken)
+                    return@runCatching
+                }
+                "CLEANING" -> tableService.markTableCleaning(tableToken)
+                "OUT_OF_SERVICE" -> tableService.markTableOutOfService(tableToken)
+                "RESERVED" -> createRemoteReservation(tableToken)
+                else -> throw UnsupportedOperationException(
+                    "API nie udostepnia bezposredniej zmiany statusu stolika na $statusToken"
+                )
+            }
+
+            response.requireApiSuccess("Nie udalo sie zapisac statusu stolika w API")
+            syncOperationalData()
+                .onFailure { error ->
+                    Log.w("SYNC", "Nie udalo sie odswiezyc stolikow po zmianie statusu: ${error.message}")
+                }
+            applyLocalTableStatus(tableId, statusToken)
+        }
+    }
+
+    suspend fun occupyTableRemote(tableId: UUID): Result<UUID> = withContext(Dispatchers.IO) {
+        runCatching {
+            val tableToken = getRemoteToken("table", tableId)
+
+            tokenStore?.clearTableReservationToken(tableId)
+
+            val createResponse = createRemoteReservation(tableToken)
+            if (!createResponse.isSuccessful && createResponse.code() != 409) {
+                createResponse.requireApiSuccess("Nie udalo sie utworzyc rezerwacji w API")
+            }
+
+            syncReservations()
+
+            val reservationToken = tokenStore?.getTableReservationToken(tableId)
+
+            if (reservationToken.isNullOrBlank()) {
+                createResponse.requireApiSuccess("Nie udalo sie utworzyc rezerwacji w API")
+                throw IllegalStateException("Brak tokena rezerwacji dla wybranego stolika")
+            }
+
+            orderService.assignWaiterToReservation(reservationToken)
+                .requireApiSuccess("Nie udalo sie przypisac kelnera w API")
+
+            syncOperationalData()
+                .onFailure { error ->
+                    Log.w("SYNC", "Nie udalo sie odswiezyc stolika po zajeciu: ${error.message}")
+                }
+            applyLocalTableStatus(tableId, "OCCUPIED")
+
+            database.orderDao().getActiveOrderForTableOnce(tableId)?.id
+                ?: createLocalOrderPlaceholder(tableId, reservationToken)
+        }
+    }
+
+    suspend fun saveReservationItemDeltas(
+        orderId: UUID,
+        additions: Map<UUID, Int>,
+        removals: Map<UUID, Int>
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val reservationToken = getReservationTokenForOrder(orderId)
+            val affectedDishIds = additions.keys + removals.keys
+
+            if (affectedDishIds.any { dishId -> tokenStore?.getToken("dish", dishId).isNullOrBlank() }) {
+                syncMenu().getOrThrow()
+            }
+
+            val addPayload = additions
+                .filterValues { it > 0 }
+                .map { (dishId, quantity) ->
+                    ReservationDishRequest(
+                        dishToken = getRemoteToken("dish", dishId),
+                        quantity = quantity
+                    )
+                }
+
+            if (addPayload.isNotEmpty()) {
+                orderService.addReservationItems(reservationToken, addPayload)
+                    .requireApiSuccess("Nie udalo sie dodac pozycji zamowienia w API")
+            }
+
+            removals
+                .filterValues { it > 0 }
+                .forEach { (dishId, quantity) ->
+                    orderService.removeReservationItem(
+                        reservationToken = reservationToken,
+                        item = ReservationDishRequest(
+                            dishToken = getRemoteToken("dish", dishId),
+                            quantity = quantity
+                        )
+                    ).requireApiSuccess("Nie udalo sie usunac pozycji zamowienia w API")
+                }
+
+            syncOperationalData().getOrThrow()
+        }
+    }
+
+    private suspend fun releaseActiveTableReservation(tableId: UUID) {
+        val reservationToken = getActiveReservationTokenForTable(tableId)
+        if (reservationToken.isNullOrBlank()) {
+            Log.w("TABLE_REMOTE", "Brak aktywnej rezerwacji do zwolnienia stolika $tableId")
+            return
+        }
+
+        orderService.markReservationAbsent(reservationToken)
+            .requireApiSuccess("Nie udalo sie zwolnic stolika w API")
+        tokenStore?.clearTableReservationToken(tableId)
+    }
+
+    private suspend fun getActiveReservationTokenForTable(tableId: UUID): String? {
+        val activeOrder = database.orderDao().getActiveOrderForTableOnce(tableId)
+        if (activeOrder != null) {
+            tokenStore?.getOrderReservationToken(activeOrder.id)?.let { return it }
+        }
+
+        tokenStore?.getTableReservationToken(tableId)?.let { return it }
+
+        syncReservations()
+        return tokenStore?.getTableReservationToken(tableId)
+    }
+
+    suspend fun createClientReportForTable(
+        tableId: UUID,
+        reason: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            syncOperationalData().getOrThrow()
+
+            val activeOrder = database.orderDao().getActiveOrderForTableOnce(tableId)
+                ?: throw IllegalStateException("Brak aktywnego zamowienia dla stolika")
+
+            val reservationToken = getReservationTokenForOrder(activeOrder.id)
+            val clientToken = tokenStore?.getReservationUserToken(reservationToken)
+                ?: throw IllegalStateException("Brak tokena klienta dla aktywnej rezerwacji")
+
+            orderService.createReport(
+                ReportCreateRequest(
+                    clientToken = clientToken,
+                    reason = reason
+                )
+            ).requireApiSuccess("Nie udalo sie wyslac raportu klienta do API")
+        }
+    }
+
+    private suspend fun createRemoteReservation(
+        tableToken: String
+    ): Response<com.example.quilacarne.data.remote.models.ApiResponse<Unit>> {
+        val start = Date()
+        val end = Calendar.getInstance().apply {
+            time = start
+            add(Calendar.HOUR_OF_DAY, 2)
+        }.time
+
+        return orderService.createReservation(
+            ReservationCreateRequest(
+                tableToken = tableToken,
+                startTime = formatApiTimestamp(start),
+                endTime = formatApiTimestamp(end)
+            )
+        )
+    }
+
+    private suspend fun getReservationTokenForOrder(orderId: UUID): String {
+        tokenStore?.getOrderReservationToken(orderId)?.let { return it }
+
+        syncOperationalData().getOrThrow()
+
+        tokenStore?.getOrderReservationToken(orderId)?.let { return it }
+
+        throw IllegalStateException("Brak tokena rezerwacji dla zamowienia")
+    }
+
+    private suspend fun createLocalOrderPlaceholder(
+        tableId: UUID,
+        reservationToken: String
+    ): UUID {
+        val now = getCurrentTimestamp()
+        val orderId = reservationToken.toStableUUID()
+
+        database.orderDao().insertOrder(
+            OrderEntity(
+                id = orderId,
+                tableId = tableId,
+                waiterId = null,
+                statusId = null,
+                totalPrice = 0,
+                createdAt = now,
+                updatedAt = now
+            )
+        )
+        tokenStore?.saveOrderReservationToken(orderId, reservationToken)
+
+        return orderId
+    }
+
+    private fun getRemoteToken(type: String, localId: UUID): String {
+        return tokenStore?.getToken(type, localId)
+            ?: throw IllegalStateException("Brak tokena API dla $type $localId")
+    }
+
+    private fun <T> Response<com.example.quilacarne.data.remote.models.ApiResponse<T>>.requireApiSuccess(
+        fallbackMessage: String
+    ) {
+        val body = body()
+        if (!isSuccessful) {
+            throw Exception(body?.message ?: errorBody()?.string() ?: fallbackMessage)
+        }
+
+        if (body == null) return
+
+        val hasErrorMessages = body.errorMessages?.isNotEmpty() == true
+        val statusCodeLooksSuccessful = body.statusCode in 200..299
+        val wrapperLooksSuccessful = body.isSuccess || statusCodeLooksSuccessful || (!hasErrorMessages && body.statusCode == 0)
+
+        if (!wrapperLooksSuccessful) {
+            throw Exception(body.message ?: body.errorMessages?.joinToString() ?: fallbackMessage)
+        }
+    }
+
+    private suspend fun applyLocalTableStatus(
+        tableId: UUID,
+        statusToken: String
+    ) {
+        val now = getCurrentTimestamp()
+        val statusId = statusToken.toStableUUID()
+
+        database.tableStatusDao().insertAll(
+            listOf(
+                TableStatusEntity(
+                    id = statusId,
+                    token = statusToken,
+                    namePl = statusToken.toTableStatusName(),
+                    nameEn = statusToken.toTableStatusName(),
+                    createdAt = now,
+                    updatedAt = now
+                )
+            )
+        )
+        database.restaurantTableDao().updateStatus(tableId, statusId, now)
+    }
+
+    private fun formatApiTimestamp(date: Date): String =
+        apiTimestampFormat("yyyy-MM-dd'T'HH:mm:ss'Z'").format(date)
+
+    private fun parseApiTimestamp(value: String): Date? {
+        val patterns = listOf(
+            "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+            "yyyy-MM-dd'T'HH:mm:ss'Z'"
+        )
+
+        patterns.forEach { pattern ->
+            runCatching { apiTimestampFormat(pattern).parse(value) }
+                .getOrNull()
+                ?.let { return it }
+        }
+
+        return null
+    }
+
+    private fun apiTimestampFormat(pattern: String): SimpleDateFormat {
+        return SimpleDateFormat(pattern, Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
         }
     }
 
@@ -567,7 +990,7 @@ class SyncRepository(
             createdAt = createdAt,
             updatedAt = updatedAt
         )
-    }
+    } 
 
     private fun UserSyncDto.toUsersEntity(preservedPasswords: Map<String, String>): UsersEntity {
         val role = roleTokens.orEmpty().joinToString(",").ifBlank { if (isStaff) "ROLE_WAITER" else "ROLE_CLIENT" }

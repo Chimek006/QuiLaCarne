@@ -1,6 +1,7 @@
 package com.example.quilacarne.ui.viewmodels
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.room.withTransaction
@@ -9,7 +10,9 @@ import com.example.quilacarne.data.local.entities.UsersEntity
 import com.example.quilacarne.data.local.entities.OrderEntity
 import com.example.quilacarne.data.local.entities.RestaurantTableEntity
 import com.example.quilacarne.data.local.relations.OrderItemWithDish
+import com.example.quilacarne.data.local.TokenManager
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -20,9 +23,12 @@ import java.util.Date
 import java.util.Locale
 import java.util.UUID
 import com.example.quilacarne.data.local.AppDatabase
+import com.example.quilacarne.data.repository.SyncRepository
 
 class TableDetailViewModel(application: Application) : AndroidViewModel(application) {
     private val db = AppDatabase.getDatabase(application)
+    private val syncRepository = SyncRepository(db, application.applicationContext)
+    private val tokenManager = TokenManager(application.applicationContext)
 
     private val _orderItems = MutableStateFlow<List<OrderItemWithDish>>(emptyList())
     val orderItems: StateFlow<List<OrderItemWithDish>> = _orderItems
@@ -54,17 +60,32 @@ class TableDetailViewModel(application: Application) : AndroidViewModel(applicat
     private var tableJob: Job? = null
     private var tablesJob: Job? = null
     private var ordersJob: Job? = null
+    private var remoteSyncJob: Job? = null
 
     fun loadTableData(tableId: UUID) {
+        startRemoteRefresh()
+
         waitersJob?.cancel()
         waitersJob = viewModelScope.launch {
+            val currentUsername = tokenManager.getCurrentUsername()?.trim().orEmpty()
+            ensureCurrentWaiterExists(currentUsername)
+
+            val currentUserFlow = if (currentUsername.isNotBlank()) {
+                db.userDao().getUserByUsernameFlow(currentUsername)
+            } else {
+                MutableStateFlow(null)
+            }
+
             combine(
                 db.userDao().getWaitersFlow(),
-                db.userDao().getAllUsersFlow()
-            ) { waiters, users ->
-                waiters.ifEmpty { users }
-            }.collect { users ->
-                _waiters.value = users.distinctBy { it.username.trim().lowercase() }
+                currentUserFlow
+            ) { waiters, currentUser ->
+                val fallbackCurrentUser = currentUser?.takeIf { it.isActive }
+                waiters.ifEmpty {
+                    listOfNotNull(fallbackCurrentUser)
+                }
+            }.collect { waiters ->
+                _waiters.value = waiters.distinctBy { it.username.trim().lowercase() }
             }
         }
 
@@ -93,14 +114,16 @@ class TableDetailViewModel(application: Application) : AndroidViewModel(applicat
                     val users = snapshot.users
 
                     _statusDictionary.value = statuses
-                    _tableStatusId.value = table?.statusId
 
-                    val tableStatusToken = getTableStatusToken(table, statuses)
-                    val activeOrder = if (tableStatusToken == "OCCUPIED") {
-                        orders.find { it.tableId == tableId }
-                    } else {
-                        null
-                    }
+                    val tableStatusToken = statuses
+                        .firstOrNull { it.id == table?.statusId }
+                        ?.token
+                        ?.uppercase()
+                    val activeOrder = orders
+                        .find { it.tableId == tableId }
+                        ?.takeIf { tableStatusToken == "OCCUPIED" }
+
+                    _tableStatusId.value = table?.statusId
                     _activeOrderId.value = activeOrder?.id
                     _assignedWaiterName.value = activeOrder
                         ?.waiterId
@@ -138,8 +161,11 @@ class TableDetailViewModel(application: Application) : AndroidViewModel(applicat
         onSaved: () -> Unit = {}
     ) {
         viewModelScope.launch {
-            val statusId = ensureStatus(token, name)
-            db.restaurantTableDao().updateStatus(tableId, statusId, getCurrentTimestamp())
+            syncRepository.changeTableStatusRemote(tableId, token)
+                .onFailure { error ->
+                    Log.w("TABLE_REMOTE", "Nie udalo sie zapisac statusu stolika w API: ${error.message}")
+                }
+
             onSaved()
         }
     }
@@ -152,6 +178,16 @@ class TableDetailViewModel(application: Application) : AndroidViewModel(applicat
         onOrderReady: (UUID) -> Unit
     ) {
         viewModelScope.launch {
+            syncRepository.occupyTableRemote(tableId)
+                .onSuccess { remoteOrderId ->
+                    db.orderDao().updateOrderWaiter(remoteOrderId, waiterId, getCurrentTimestamp())
+                    onOrderReady(remoteOrderId)
+                    return@launch
+                }
+                .onFailure { error ->
+                    Log.w("TABLE_REMOTE", "Nie udalo sie zajac stolika przez API: ${error.message}")
+                }
+
             val now = getCurrentTimestamp()
             val statusId = ensureStatus(statusToken, statusName)
             val orderId = db.withTransaction {
@@ -226,6 +262,51 @@ class TableDetailViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    private fun startRemoteRefresh() {
+        if (remoteSyncJob?.isActive == true) return
+
+        remoteSyncJob = viewModelScope.launch {
+            while (true) {
+                syncRepository.syncOperationalData()
+                    .onFailure { error ->
+                        Log.w("TABLE_REMOTE", "Okresowa synchronizacja nie powiodla sie: ${error.message}")
+                    }
+                delay(5_000L)
+            }
+        }
+    }
+
+    private suspend fun ensureCurrentWaiterExists(username: String) {
+        if (username.isBlank()) return
+
+        val existing = db.userDao().getUserByUsername(username)
+        if (existing != null) {
+            if (!existing.role.contains("waiter", ignoreCase = true)) {
+                val now = getCurrentTimestamp()
+                db.userDao().insertUser(
+                    existing.copy(
+                        role = "waiter",
+                        updatedAt = now
+                    )
+                )
+            }
+            return
+        }
+
+        val now = getCurrentTimestamp()
+        db.userDao().insertUser(
+            UsersEntity(
+                id = username.toStableUUID(),
+                username = username,
+                password = "",
+                isActive = true,
+                role = "waiter",
+                createdAt = now,
+                updatedAt = now
+            )
+        )
+    }
+
     private suspend fun ensureStatus(token: String, name: String): UUID {
         val statusId = token.toStableUUID()
         val now = getCurrentTimestamp()
@@ -268,6 +349,7 @@ class TableDetailViewModel(application: Application) : AndroidViewModel(applicat
         tableJob?.cancel()
         tablesJob?.cancel()
         ordersJob?.cancel()
+        remoteSyncJob?.cancel()
     }
 }
 
