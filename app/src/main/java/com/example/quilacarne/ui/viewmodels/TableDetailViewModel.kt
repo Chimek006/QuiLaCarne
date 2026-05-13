@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.room.withTransaction
 import com.example.quilacarne.data.local.entities.OrderEntity
+import com.example.quilacarne.data.local.entities.ReservationEntity
 import com.example.quilacarne.data.local.entities.TableStatusEntity
 import com.example.quilacarne.data.local.entities.UsersEntity
 import com.example.quilacarne.data.local.entities.RestaurantTableEntity
@@ -24,6 +25,7 @@ import java.util.Locale
 import java.util.UUID
 import com.example.quilacarne.data.local.AppDatabase
 import com.example.quilacarne.data.repository.SyncRepository
+import com.example.quilacarne.utils.ReservationTimeUtils
 
 class TableDetailViewModel(application: Application) : AndroidViewModel(application) {
     private val db = AppDatabase.getDatabase(application)
@@ -50,6 +52,9 @@ class TableDetailViewModel(application: Application) : AndroidViewModel(applicat
 
     private val _assignedWaiterName = MutableStateFlow<String?>(null)
     val assignedWaiterName: StateFlow<String?> = _assignedWaiterName
+
+    private val _reservation = MutableStateFlow<ReservationEntity?>(null)
+    val reservation: StateFlow<ReservationEntity?> = _reservation
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading
@@ -104,14 +109,16 @@ class TableDetailViewModel(application: Application) : AndroidViewModel(applicat
                     db.restaurantTableDao().getTableById(tableId),
                     db.tableStatusDao().getAllStatuses(),
                     db.orderDao().getAllOrders(),
-                    db.userDao().getAllUsersFlow()
-                ) { table, statuses, orders, users ->
-                    TableDetailSnapshot(table, statuses, orders, users)
+                    db.userDao().getAllUsersFlow(),
+                    db.reservationDao().getReservationsForTableFlow(tableId)
+                ) { table, statuses, orders, users, reservations ->
+                    TableDetailSnapshot(table, statuses, orders, users, reservations)
                 }.collectLatest { snapshot ->
                     val table = snapshot.table
                     val statuses = snapshot.statuses
                     val orders = snapshot.orders
                     val users = snapshot.users
+                    val reservation = ReservationTimeUtils.selectCurrentOrUpcoming(snapshot.reservations)
 
                     _statusDictionary.value = statuses
 
@@ -119,22 +126,27 @@ class TableDetailViewModel(application: Application) : AndroidViewModel(applicat
                         .firstOrNull { it.id == table?.statusId }
                         ?.token
                         ?.uppercase()
-                    val activeOrder = orders
+                    val occupiedOrder = orders
                         .find { it.tableId == tableId }
                         ?.takeIf { tableStatusToken == "OCCUPIED" }
+                    val reservationOrder = orders
+                        .find { it.tableId == tableId }
+                        ?.takeIf { reservation != null }
+                    val orderForItems = occupiedOrder ?: reservationOrder
 
                     _tableStatusId.value = table?.statusId
-                    _activeOrderId.value = activeOrder?.id
-                    _assignedWaiterName.value = activeOrder
+                    _reservation.value = reservation
+                    _activeOrderId.value = occupiedOrder?.id
+                    _assignedWaiterName.value = occupiedOrder
                         ?.waiterId
                         ?.let { waiterId ->
                             users.firstOrNull { it.id == waiterId }?.username
                         }
 
-                    if (activeOrder != null) {
+                    if (orderForItems != null) {
                         itemsJob?.cancel()
                         itemsJob = viewModelScope.launch {
-                            db.orderDao().getItemsForOrder(activeOrder.id).collect { itemsWithDish ->
+                            db.orderDao().getItemsForOrder(orderForItems.id).collect { itemsWithDish ->
                                 _orderItems.value = itemsWithDish
                                 _isLoading.value = false
                             }
@@ -143,7 +155,9 @@ class TableDetailViewModel(application: Application) : AndroidViewModel(applicat
                         itemsJob?.cancel()
                         _orderItems.value = emptyList()
                         _activeOrderId.value = null
-                        _assignedWaiterName.value = null
+                        if (tableStatusToken != "OCCUPIED") {
+                            _assignedWaiterName.value = null
+                        }
                         _isLoading.value = false
                     }
                 }
@@ -331,5 +345,6 @@ private data class TableDetailSnapshot(
     val table: RestaurantTableEntity?,
     val statuses: List<TableStatusEntity>,
     val orders: List<OrderEntity>,
-    val users: List<UsersEntity>
+    val users: List<UsersEntity>,
+    val reservations: List<ReservationEntity>
 )

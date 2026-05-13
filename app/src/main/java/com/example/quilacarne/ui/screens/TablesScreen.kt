@@ -31,6 +31,7 @@ import com.example.quilacarne.ui.i18n.localizedName
 import com.example.quilacarne.ui.i18n.rememberAppLanguage
 import com.example.quilacarne.ui.theme.*
 import com.example.quilacarne.ui.viewmodels.TablesViewModel
+import com.example.quilacarne.utils.ReservationTimeUtils
 import java.util.UUID
 
 @Composable
@@ -38,6 +39,7 @@ fun TablesScreen(navController: NavController, viewModel: TablesViewModel) {
     val tables by viewModel.tables.collectAsState()
     val statuses by viewModel.statuses.collectAsState()
     val waiterNamesByTable by viewModel.waiterNamesByTable.collectAsState()
+    val reservationsByTable by viewModel.reservationsByTable.collectAsState()
     val isSyncComplete by viewModel.isSyncComplete.collectAsState()
     val language = rememberAppLanguage()
     val sortedTables = remember(tables) {
@@ -82,14 +84,24 @@ fun TablesScreen(navController: NavController, viewModel: TablesViewModel) {
                 ) {
                     items(sortedTables, key = { it.id }) { table ->
                         val statusInfo = getStatusInfo(table.statusId, statuses)
-                        val statusToken = statusInfo?.token ?: "AVAILABLE"
-                        val statusText = statusInfo?.localizedName(language) ?: getStatusText(statusToken, language)
+                        val physicalStatusToken = statusInfo?.token?.uppercase() ?: "AVAILABLE"
+                        val reservation = reservationsByTable[table.id]
+                        val statusToken = getDisplayStatusToken(physicalStatusToken, reservation != null)
+                        val statusText = if (statusToken == "RESERVED") {
+                            language.choose("Zarezerwowany", "Reserved")
+                        } else {
+                            statusInfo?.localizedName(language) ?: getStatusText(statusToken, language)
+                        }
+                        val reservationTime = reservation
+                            ?.takeIf { statusToken == "RESERVED" }
+                            ?.let { ReservationTimeUtils.formatTimeRange(it.startTime, it.endTime) }
                         val (pillColor, textColor) = getStatusColors(statusToken)
 
                         TableCard(
                             name = language.choose("Stolik ${table.tableNumber}", "Table ${table.tableNumber}"),
                             status = statusText,
                             waiterName = waiterNamesByTable[table.id],
+                            reservationTime = reservationTime,
                             language = language,
                             pillColor = pillColor,
                             pillTextColor = textColor,
@@ -105,6 +117,15 @@ fun TablesScreen(navController: NavController, viewModel: TablesViewModel) {
                 }
             }
         }
+    }
+}
+
+private fun getDisplayStatusToken(physicalStatusToken: String, hasReservation: Boolean): String {
+    return when (physicalStatusToken.uppercase()) {
+        "OUT_OF_SERVICE" -> "OUT_OF_SERVICE"
+        "CLEANING" -> "CLEANING"
+        "OCCUPIED" -> "OCCUPIED"
+        else -> if (hasReservation) "RESERVED" else "AVAILABLE"
     }
 }
 
@@ -139,6 +160,7 @@ private fun TableCard(
     name: String,
     status: String,
     waiterName: String?,
+    reservationTime: String?,
     language: AppLanguage,
     pillColor: Color,
     pillTextColor: Color,
@@ -197,10 +219,20 @@ private fun TableCard(
                         )
                     }
 
-                    waiterName?.let {
+                    if (reservationTime != null) {
                         Spacer(modifier = Modifier.height(5.dp))
                         Text(
-                            text = "${language.choose("Kelner", "Waiter")}: $it",
+                            text = "${language.choose("Godziny", "Time")}: $reservationTime",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White,
+                            textAlign = TextAlign.Center,
+                            maxLines = 1
+                        )
+                    } else if (waiterName != null) {
+                        Spacer(modifier = Modifier.height(5.dp))
+                        Text(
+                            text = "${language.choose("Kelner", "Waiter")}: $waiterName",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = Color.White,

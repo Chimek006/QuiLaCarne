@@ -26,6 +26,7 @@ import com.example.quilacarne.ui.i18n.localizedName
 import com.example.quilacarne.ui.i18n.rememberAppLanguage
 import com.example.quilacarne.ui.theme.*
 import com.example.quilacarne.ui.viewmodels.TableDetailViewModel
+import com.example.quilacarne.utils.ReservationTimeUtils
 import java.util.UUID
 import java.util.Locale
 import com.example.quilacarne.ui.components.QuiLaCarneHeader
@@ -45,6 +46,7 @@ fun TableDetailScreen(
     val tables by viewModel.tables.collectAsState()
     val activeOrderId by viewModel.activeOrderId.collectAsState()
     val assignedWaiterName by viewModel.assignedWaiterName.collectAsState()
+    val reservation by viewModel.reservation.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val language = rememberAppLanguage()
     var showStatusDialog by remember { mutableStateOf(false) }
@@ -69,7 +71,12 @@ fun TableDetailScreen(
     val currentStatusInfo = statusDict.find { it.id == tableStatusId }
     val currentToken = currentStatusInfo?.token?.uppercase() ?: normalizeStatusToken(tableStatus)
 
-    val effectiveToken = currentToken
+    val hasReservationDisplay = reservation != null && currentToken !in setOf(
+        "OUT_OF_SERVICE",
+        "CLEANING",
+        "OCCUPIED"
+    )
+    val effectiveToken = if (hasReservationDisplay) "RESERVED" else currentToken
 
     val displayedToken = stagedStatus?.token ?: effectiveToken
     val statusInfo = statusOptions.find { it.token == displayedToken }
@@ -139,6 +146,17 @@ fun TableDetailScreen(
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold
                 )
+            } else if (displayedToken == "RESERVED") {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "${language.choose("Godziny rezerwacji", "Reservation time")}: ${
+                        reservation?.let { ReservationTimeUtils.formatTimeRange(it.startTime, it.endTime) }.orEmpty()
+                    }",
+                    modifier = Modifier.fillMaxWidth(),
+                    color = Color.DarkGray,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
 
             Spacer(modifier = Modifier.height(20.dp))
@@ -180,7 +198,14 @@ fun TableDetailScreen(
                         }
                     } else if (orderItems.isEmpty()) {
                         Text(
-                            text = if (displayedToken == "AVAILABLE") language.choose("Brak pozycji - stolik wolny", "No items - table available") else language.choose("Brak aktywnych zamowien", "No active orders"),
+                            text = when {
+                                displayedToken == "RESERVED" -> language.choose(
+                                    "Brak zamowionych dan dla tej rezerwacji",
+                                    "No ordered dishes for this reservation"
+                                )
+                                displayedToken == "AVAILABLE" -> language.choose("Brak pozycji - stolik wolny", "No items - table available")
+                                else -> language.choose("Brak aktywnych zamowien", "No active orders")
+                            },
                             modifier = Modifier.fillMaxWidth().padding(20.dp),
                             textAlign = TextAlign.Center,
                             color = Color.Gray

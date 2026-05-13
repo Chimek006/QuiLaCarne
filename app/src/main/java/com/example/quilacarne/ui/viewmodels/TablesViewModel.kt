@@ -3,15 +3,18 @@ package com.example.quilacarne.ui.viewmodels
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.quilacarne.data.local.entities.ReservationEntity
 import com.example.quilacarne.data.local.entities.RestaurantTableEntity
 import com.example.quilacarne.data.local.entities.TableStatusEntity
 import com.example.quilacarne.data.repository.SyncRepository
+import com.example.quilacarne.utils.ReservationTimeUtils
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -38,6 +41,23 @@ class TablesViewModel(private val repository: SyncRepository) : ViewModel() {
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
+        )
+
+    val reservationsByTable: StateFlow<Map<UUID, ReservationEntity>> = repository.getReservationsFlow()
+        .map { reservations ->
+            val nowMillis = System.currentTimeMillis()
+            reservations
+                .groupBy { it.tableId }
+                .mapNotNull { (tableId, tableReservations) ->
+                    ReservationTimeUtils.selectCurrentOrUpcoming(tableReservations, nowMillis)
+                        ?.let { reservation -> tableId to reservation }
+                }
+                .toMap()
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyMap()
         )
 
     val waiterNamesByTable: StateFlow<Map<UUID, String>> = combine(

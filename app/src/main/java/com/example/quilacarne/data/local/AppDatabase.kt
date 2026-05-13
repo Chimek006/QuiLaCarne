@@ -26,9 +26,10 @@ import net.sqlcipher.database.SupportFactory
         OrderItemEntity::class,
         GuestReportEntity::class,
         DishCompositionEntity::class,
-        IngredientAllergenEntity::class
+        IngredientAllergenEntity::class,
+        ReservationEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -39,6 +40,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun dishCategoryDao(): DishCategoryDao
     abstract fun dishDao(): DishDao
     abstract fun orderDao(): OrderDao
+    abstract fun reservationDao(): ReservationDao
 
     abstract fun restaurantTableDao(): RestaurantTableDao
     abstract fun ingredientDao(): IngredientDao

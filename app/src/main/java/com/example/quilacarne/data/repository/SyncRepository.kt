@@ -15,6 +15,7 @@ import com.example.quilacarne.data.local.entities.IngredientAllergenEntity
 import com.example.quilacarne.data.local.entities.IngredientEntity
 import com.example.quilacarne.data.local.entities.OrderEntity
 import com.example.quilacarne.data.local.entities.OrderItemEntity
+import com.example.quilacarne.data.local.entities.ReservationEntity
 import com.example.quilacarne.data.local.entities.RestaurantTableEntity
 import com.example.quilacarne.data.local.entities.TableStatusEntity
 import com.example.quilacarne.data.local.entities.UsersEntity
@@ -34,6 +35,7 @@ import com.example.quilacarne.data.remote.network.AuthInterceptor
 import com.example.quilacarne.data.remote.network.RemoteTokenStore
 import com.example.quilacarne.data.remote.network.RetrofitClient
 import com.example.quilacarne.data.remote.network.TokenAuthenticator
+import com.example.quilacarne.utils.ReservationTimeUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.sync.Mutex
@@ -41,6 +43,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONObject
 import retrofit2.Response
 import java.io.File
 import java.net.URI
@@ -77,7 +80,9 @@ class SyncRepository(
     private fun String.toStableUUID(): UUID = UUID.nameUUIDFromBytes(toByteArray())
 
     private fun getCurrentTimestamp(): String =
-        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.getDefault()).format(Date())
+        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }.format(Date())
 
     fun getTablesFlow(): Flow<List<RestaurantTableEntity>> {
         return database.restaurantTableDao().getAllTablesFlow()
@@ -89,6 +94,10 @@ class SyncRepository(
 
     fun getOrdersFlow(): Flow<List<OrderEntity>> {
         return database.orderDao().getAllOrders()
+    }
+
+    fun getReservationsFlow(): Flow<List<ReservationEntity>> {
+        return database.reservationDao().getReservationsFlow()
     }
 
     fun getUsersFlow(): Flow<List<UsersEntity>> {
@@ -157,6 +166,7 @@ class SyncRepository(
             var page = 1
             val allTablesEntities = mutableListOf<RestaurantTableEntity>()
             val tableStatusTokens = mutableSetOf<String>()
+            val existingTablesById = dao.getAllTablesOnce().associateBy { it.id }
             val existingStatusTokensByTableId = dao
                 .getAllTablesOnce()
                 .associate { table ->
@@ -182,8 +192,14 @@ class SyncRepository(
 
                 items.forEach { dto ->
                     val tableId = dto.token.toStableUUID()
-                    val statusToken = dto.currentStatusToken()
-                        ?: existingStatusTokensByTableId[tableId]
+                    val existingStatusToken = existingStatusTokensByTableId[tableId]
+                    val remoteStatusToken = dto.currentStatusToken()
+                    val statusToken = resolveSyncedTableStatusToken(
+                        remoteStatusToken = remoteStatusToken,
+                        existingStatusToken = existingStatusToken,
+                        remoteUpdatedAt = dto.updatedAt,
+                        existingUpdatedAt = existingTablesById[tableId]?.updatedAt
+                    )
 
                     if (!statusToken.isNullOrBlank()) {
                         tableStatusTokens.add(statusToken)
@@ -196,7 +212,7 @@ class SyncRepository(
                             capacity = dto.capacity,
                             statusId = statusToken?.toStableUUID(),
                             createdAt = now,
-                            updatedAt = now
+                            updatedAt = dto.updatedAt.ifBlank { now }
                         )
                     )
                     tokenStore?.saveToken("table", tableId, dto.token)
@@ -306,6 +322,34 @@ class SyncRepository(
         }
 
         return tokens.first()
+    }
+
+    private fun resolveSyncedTableStatusToken(
+        remoteStatusToken: String?,
+        existingStatusToken: String?,
+        remoteUpdatedAt: String?,
+        existingUpdatedAt: String?
+    ): String? {
+        val remoteToken = remoteStatusToken?.uppercase(Locale.US)
+        val existingToken = existingStatusToken?.uppercase(Locale.US)
+
+        if (remoteToken == null) return existingToken
+
+        val remoteSaysAvailable = remoteToken == "AVAILABLE"
+        val existingIsBusyState = existingToken in setOf("OCCUPIED", "CLEANING", "OUT_OF_SERVICE")
+
+        if (remoteSaysAvailable && existingIsBusyState) {
+            val remoteMillis = remoteUpdatedAt
+                ?.let { ReservationTimeUtils.parseApiTimestampMillis(it) }
+            val existingMillis = existingUpdatedAt
+                ?.let { ReservationTimeUtils.parseApiTimestampMillis(it) }
+
+            if (remoteMillis == null || existingMillis == null || remoteMillis <= existingMillis) {
+                return existingToken
+            }
+        }
+
+        return remoteToken
     }
 
     private fun String.toTableStatusName(): String {
@@ -433,8 +477,9 @@ class SyncRepository(
 
     private suspend fun syncReservations() {
         var page = 1
-        val now = Date()
-        val latestActiveReservationByTable = mutableMapOf<UUID, ReservationSyncDto>()
+        val nowMillis = System.currentTimeMillis()
+        val currentReservationByTable = mutableMapOf<UUID, ReservationEntity>()
+        val syncedReservations = mutableListOf<ReservationEntity>()
 
         while (true) {
             val response = orderService.syncReservations(page = page)
@@ -448,13 +493,14 @@ class SyncRepository(
 
             reservations.forEach { reservation ->
                 storeReservationTokens(reservation)
+                val entity = reservation.toReservationEntity()
+                syncedReservations.add(entity)
 
-                if (reservation.isCurrentActiveReservation(now)) {
-                    val tableId = reservation.tableToken.toStableUUID()
-                    val current = latestActiveReservationByTable[tableId]
+                if (ReservationTimeUtils.isCurrent(entity, nowMillis)) {
+                    val current = currentReservationByTable[entity.tableId]
 
-                    if (current == null || reservation.updatedAt >= current.updatedAt) {
-                        latestActiveReservationByTable[tableId] = reservation
+                    if (current == null || entity.updatedAt >= current.updatedAt) {
+                        currentReservationByTable[entity.tableId] = entity
                     }
                 }
             }
@@ -462,13 +508,22 @@ class SyncRepository(
             page++
         }
 
-        latestActiveReservationByTable.forEach { (tableId, reservation) ->
+        database.withTransaction {
+            if (syncedReservations.isEmpty()) {
+                database.reservationDao().clearAll()
+            } else {
+                database.reservationDao().insertAll(syncedReservations)
+                database.reservationDao().deleteReservationsExcept(syncedReservations.map { it.id })
+            }
+        }
+
+        currentReservationByTable.forEach { (tableId, reservation) ->
             tokenStore?.saveTableReservationToken(tableId, reservation.token)
         }
 
         database.restaurantTableDao()
             .getAllTablesOnce()
-            .filter { it.id !in latestActiveReservationByTable.keys }
+            .filter { it.id !in currentReservationByTable.keys }
             .forEach { table -> tokenStore?.clearTableReservationToken(table.id) }
     }
 
@@ -479,29 +534,22 @@ class SyncRepository(
         tokenStore?.saveReservationUserToken(reservation.token, reservation.userToken)
     }
 
-    private fun ReservationSyncDto.isActiveReservation(): Boolean {
-        val inactiveStatuses = setOf(
-            "ABSENT",
-            "CANCELED",
-            "CANCELLED",
-            "COMPLETED",
-            "DONE",
-            "FINISHED"
+    private fun ReservationSyncDto.toReservationEntity(): ReservationEntity {
+        return ReservationEntity(
+            id = token.toStableUUID(),
+            token = token,
+            tableId = tableToken.toStableUUID(),
+            tableToken = tableToken,
+            userToken = userToken,
+            startTime = startTime,
+            endTime = endTime,
+            startEpochMillis = ReservationTimeUtils.parseApiTimestampMillis(startTime) ?: 0L,
+            endEpochMillis = ReservationTimeUtils.parseApiTimestampMillis(endTime) ?: 0L,
+            statusTokens = ReservationTimeUtils.statusTokensToText(statusTokens),
+            isActive = ReservationTimeUtils.isActiveStatus(statusTokens),
+            createdAt = createdAt,
+            updatedAt = updatedAt
         )
-
-        return statusTokens.none { it.uppercase() in inactiveStatuses }
-    }
-
-    private fun ReservationSyncDto.isCurrentActiveReservation(now: Date): Boolean {
-        if (!isActiveReservation()) return false
-
-        val start = parseApiTimestamp(startTime)
-        val end = parseApiTimestamp(endTime)
-
-        val hasStarted = start == null || !now.before(start)
-        val hasNotEnded = end == null || now.before(end)
-
-        return hasStarted && hasNotEnded
     }
 
     suspend fun syncMenu(): Result<Unit> = runCatching {
@@ -702,9 +750,8 @@ class SyncRepository(
             val reservationToken = getActiveReservationTokenForTable(tableId)
 
             if (reservationToken.isNullOrBlank()) {
-                // TODO(API): Add a waiter-accessible endpoint for occupying a table without a client reservation.
                 throw UnsupportedOperationException(
-                    "Nie mozna zajac stolika bez aktywnej rezerwacji - API nie udostepnia takiej operacji dla kelnera."
+                    "Nie mozna zajac stolika bez aktualnej rezerwacji."
                 )
             }
 
@@ -767,14 +814,9 @@ class SyncRepository(
     private suspend fun getActiveReservationTokenForTable(tableId: UUID): String? {
         syncReservations()
 
-        tokenStore?.getTableReservationToken(tableId)?.let { return it }
-
-        val activeOrder = database.orderDao().getActiveOrderForTableOnce(tableId)
-        if (activeOrder != null) {
-            tokenStore?.getOrderReservationToken(activeOrder.id)?.let { return it }
-        }
-
-        return null
+        return database.reservationDao()
+            .getCurrentReservationForTable(tableId, System.currentTimeMillis())
+            ?.token
     }
 
     suspend fun createClientReportForTable(
@@ -820,7 +862,8 @@ class SyncRepository(
     ) {
         val body = body()
         if (!isSuccessful) {
-            throw Exception(body?.message ?: errorBody()?.string() ?: fallbackMessage)
+            val rawError = errorBody()?.string()
+            throw Exception(body?.message ?: rawError.toApiMessageOrNull() ?: fallbackMessage)
         }
 
         if (body == null) return
@@ -832,6 +875,14 @@ class SyncRepository(
         if (!wrapperLooksSuccessful) {
             throw Exception(body.message ?: body.errorMessages?.joinToString() ?: fallbackMessage)
         }
+    }
+
+    private fun String?.toApiMessageOrNull(): String? {
+        val raw = this?.takeIf { it.isNotBlank() } ?: return null
+
+        return runCatching {
+            JSONObject(raw).optString("message").takeIf { it.isNotBlank() }
+        }.getOrNull() ?: raw
     }
 
     private suspend fun applyLocalTableStatus(
@@ -854,30 +905,6 @@ class SyncRepository(
             )
         )
         database.restaurantTableDao().updateStatus(tableId, statusId, now)
-    }
-
-    private fun formatApiTimestamp(date: Date): String =
-        apiTimestampFormat("yyyy-MM-dd'T'HH:mm:ss'Z'").format(date)
-
-    private fun parseApiTimestamp(value: String): Date? {
-        val patterns = listOf(
-            "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
-            "yyyy-MM-dd'T'HH:mm:ss'Z'"
-        )
-
-        patterns.forEach { pattern ->
-            runCatching { apiTimestampFormat(pattern).parse(value) }
-                .getOrNull()
-                ?.let { return it }
-        }
-
-        return null
-    }
-
-    private fun apiTimestampFormat(pattern: String): SimpleDateFormat {
-        return SimpleDateFormat(pattern, Locale.US).apply {
-            timeZone = TimeZone.getTimeZone("UTC")
-        }
     }
 
     private suspend fun cacheDishImage(dishId: UUID, imageUrl: String?): String? {
