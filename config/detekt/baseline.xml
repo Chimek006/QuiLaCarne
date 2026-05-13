@@ -1,0 +1,211 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>CyclomaticComplexMethod:SyncRepository.kt$SyncRepository$suspend fun syncMenu(): Result&lt;Unit&gt;</ID>
+    <ID>CyclomaticComplexMethod:TableDetailScreen.kt$@Composable fun TableDetailScreen( navController: NavController, tableId: UUID, tableName: String, tableStatus: String = "AVAILABLE", viewModel: TableDetailViewModel = viewModel() )</ID>
+    <ID>FunctionNaming:DishDetailScreen.kt$@Composable fun DishDetailScreen( dishId: UUID, navController: NavController, viewModel: MenuViewModel )</ID>
+    <ID>FunctionNaming:HeaderComponents.kt$@Composable fun QuiLaCarneHeader( navController: NavController? = null, showBack: Boolean = false )</ID>
+    <ID>FunctionNaming:HeaderComponents.kt$@Composable private fun ConnectionIssueBadge( issue: ConnectionIssue, modifier: Modifier = Modifier )</ID>
+    <ID>FunctionNaming:LoginScreen.kt$@Composable fun LoginScreen(navController: NavController)</ID>
+    <ID>FunctionNaming:LoginScreen.kt$@Composable private fun LargeUnderlinedField( valueHint: String, value: String, onValueChange: (String) -&gt; Unit, isPassword: Boolean = false, enabled: Boolean = true )</ID>
+    <ID>FunctionNaming:MainScreen.kt$@Composable fun DashboardCard( title: String, icon: ImageVector, color: Color, onClick: () -&gt; Unit )</ID>
+    <ID>FunctionNaming:MainScreen.kt$@Composable fun MainScreen( navController: NavController, viewModel: MainViewModel = viewModel() )</ID>
+    <ID>FunctionNaming:MainScreen.kt$@Composable private fun LanguageSelector( language: AppLanguage, enabled: Boolean, onLanguageChange: (AppLanguage) -&gt; Unit, modifier: Modifier = Modifier )</ID>
+    <ID>FunctionNaming:MainScreen.kt$@Composable private fun MainBottomActions( language: AppLanguage, isLoggingOut: Boolean, onLanguageChange: (AppLanguage) -&gt; Unit, onSync: () -&gt; Unit, onLogout: () -&gt; Unit )</ID>
+    <ID>FunctionNaming:MenuScreen.kt$@Composable fun AllergenChip(allergen: AllergenEntity, language: AppLanguage, isSelected: Boolean, onClick: () -&gt; Unit)</ID>
+    <ID>FunctionNaming:MenuScreen.kt$@Composable fun CategoryChip(name: String, isSelected: Boolean, onClick: () -&gt; Unit)</ID>
+    <ID>FunctionNaming:MenuScreen.kt$@Composable fun DishListItem(dish: DishEntity, language: AppLanguage, onClick: () -&gt; Unit)</ID>
+    <ID>FunctionNaming:MenuScreen.kt$@Composable fun MenuScreen( navController: NavController, viewModel: MenuViewModel = viewModel() )</ID>
+    <ID>FunctionNaming:OrderAddScreen.kt$@Composable fun OrderAddScreen( navController: NavController, tableId: UUID, orderId: UUID, viewModel: OrderAddViewModel = viewModel() )</ID>
+    <ID>FunctionNaming:OrderAddScreen.kt$@Composable private fun CategorySelector( categories: List&lt;DishCategoryEntity&gt;, language: AppLanguage, selectedCategoryId: UUID?, onSelected: (UUID?) -&gt; Unit )</ID>
+    <ID>FunctionNaming:OrderAddScreen.kt$@Composable private fun CurrentOrderCard( items: List&lt;PendingOrderItem&gt;, language: AppLanguage, totalPrice: Int, onDecrease: (PendingOrderItem) -&gt; Unit, onRemove: (PendingOrderItem) -&gt; Unit )</ID>
+    <ID>FunctionNaming:OrderAddScreen.kt$@Composable private fun DishAddRow( dish: DishEntity, language: AppLanguage, quantity: Int, onAdd: () -&gt; Unit )</ID>
+    <ID>FunctionNaming:OrderAddScreen.kt$@Composable private fun OrderCategoryChip(name: String, isSelected: Boolean, onClick: () -&gt; Unit)</ID>
+    <ID>FunctionNaming:ReportClientScreen.kt$@Composable fun ReportClientScreen( navController: NavController, tableId: UUID, viewModel: ReportClientViewModel = viewModel() )</ID>
+    <ID>FunctionNaming:SyncScreen.kt$@Composable fun SyncScreen( navController: NavController, viewModel: SyncViewModel = viewModel() )</ID>
+    <ID>FunctionNaming:TableDetailScreen.kt$@Composable fun ActionButtons( canEditOrder: Boolean, canMoveOrder: Boolean, language: AppLanguage, onStatusClick: () -&gt; Unit, onEditOrder: () -&gt; Unit, onMoveTable: () -&gt; Unit )</ID>
+    <ID>FunctionNaming:TableDetailScreen.kt$@Composable fun OrderItemRow(name: String, quantity: Int, status: String, price: Double, language: AppLanguage, accentColor: Color)</ID>
+    <ID>FunctionNaming:TableDetailScreen.kt$@Composable fun PriceSummary(totalPrice: Double, language: AppLanguage)</ID>
+    <ID>FunctionNaming:TableDetailScreen.kt$@Composable fun SaveChangesButton( enabled: Boolean, isSaving: Boolean, modifier: Modifier = Modifier, onClick: () -&gt; Unit )</ID>
+    <ID>FunctionNaming:TableDetailScreen.kt$@Composable fun TableDetailScreen( navController: NavController, tableId: UUID, tableName: String, tableStatus: String = "AVAILABLE", viewModel: TableDetailViewModel = viewModel() )</ID>
+    <ID>FunctionNaming:TableDetailScreen.kt$@Composable private fun DialogOptionButton( text: String, supportingText: String? = null, selected: Boolean = false, enabled: Boolean = true, onClick: () -&gt; Unit )</ID>
+    <ID>FunctionNaming:TableDetailScreen.kt$@Composable private fun StatusSelectionDialog( statusOptions: List&lt;TableStatusOption&gt;, currentStatusToken: String, language: AppLanguage, onDismiss: () -&gt; Unit, onStatusSelected: (TableStatusOption) -&gt; Unit )</ID>
+    <ID>FunctionNaming:TableDetailScreen.kt$@Composable private fun TableMoveDialog( tables: List&lt;RestaurantTableEntity&gt;, statuses: List&lt;TableStatusEntity&gt;, language: AppLanguage, isMoving: Boolean, errorMessage: String?, onDismiss: () -&gt; Unit, onTableSelected: (RestaurantTableEntity) -&gt; Unit )</ID>
+    <ID>FunctionNaming:TableDetailScreen.kt$@Composable private fun WaiterAssignmentDialog( waiters: List&lt;UsersEntity&gt;, language: AppLanguage, onDismiss: () -&gt; Unit, onWaiterSelected: (UsersEntity) -&gt; Unit )</ID>
+    <ID>FunctionNaming:TablesScreen.kt$@Composable fun TablesScreen(navController: NavController, viewModel: TablesViewModel)</ID>
+    <ID>FunctionNaming:TablesScreen.kt$@Composable private fun TableCard( name: String, status: String, waiterName: String?, reservationTime: String?, language: AppLanguage, pillColor: Color, pillTextColor: Color, topColor: Color, bottomColor: Color, onClick: (String) -&gt; Unit )</ID>
+    <ID>FunctionNaming:Theme.kt$@Composable fun QuiLaCarneTheme( darkTheme: Boolean = isSystemInDarkTheme(), // Dynamic color is available on Android 12+ dynamicColor: Boolean = true, content: @Composable () -&gt; Unit )</ID>
+    <ID>LargeClass:SyncRepository.kt$SyncRepository</ID>
+    <ID>LongMethod:DishDetailScreen.kt$@Composable fun DishDetailScreen( dishId: UUID, navController: NavController, viewModel: MenuViewModel )</ID>
+    <ID>LongMethod:LoginScreen.kt$@Composable fun LoginScreen(navController: NavController)</ID>
+    <ID>LongMethod:MainActivity.kt$MainActivity$override fun onCreate(savedInstanceState: Bundle?)</ID>
+    <ID>LongMethod:OrderAddScreen.kt$@Composable fun OrderAddScreen( navController: NavController, tableId: UUID, orderId: UUID, viewModel: OrderAddViewModel = viewModel() )</ID>
+    <ID>LongMethod:SyncRepository.kt$SyncRepository$suspend fun syncMenu(): Result&lt;Unit&gt;</ID>
+    <ID>LongMethod:TableDetailScreen.kt$@Composable fun TableDetailScreen( navController: NavController, tableId: UUID, tableName: String, tableStatus: String = "AVAILABLE", viewModel: TableDetailViewModel = viewModel() )</ID>
+    <ID>LongParameterList:TablesScreen.kt$( name: String, status: String, waiterName: String?, reservationTime: String?, language: AppLanguage, pillColor: Color, pillTextColor: Color, topColor: Color, bottomColor: Color, onClick: (String) -&gt; Unit )</ID>
+    <ID>LoopWithTooManyJumpStatements:SyncRepository.kt$SyncRepository$while</ID>
+    <ID>MatchingDeclarationName:AllergenDictionaryDataModels.kt$AllergenDictionaryData</ID>
+    <ID>MatchingDeclarationName:AllergenDtoModels.kt$AllergenDto</ID>
+    <ID>MatchingDeclarationName:ApiResponseModels.kt$ApiResponse&lt;T&gt;</ID>
+    <ID>MatchingDeclarationName:BootstrapResponseModels.kt$BootstrapResponse</ID>
+    <ID>MatchingDeclarationName:CategoriesDataModels.kt$CategoriesData</ID>
+    <ID>MatchingDeclarationName:CategoryDtoModels.kt$CategoryDto</ID>
+    <ID>MatchingDeclarationName:DictionaryDataModels.kt$DictionaryData&lt;T&gt;</ID>
+    <ID>MatchingDeclarationName:DictionaryItemModels.kt$DictionaryItem</ID>
+    <ID>MatchingDeclarationName:DishSyncDtoModels.kt$DishSyncDto</ID>
+    <ID>MatchingDeclarationName:GuestReportEntity.kt$GuestReportStatusEntity</ID>
+    <ID>MatchingDeclarationName:GuestReportStatusEntity.kt$GuestReportEntity</ID>
+    <ID>MatchingDeclarationName:IngredientSyncDtoModels.kt$IngredientSyncDto</ID>
+    <ID>MatchingDeclarationName:LoginDataModels.kt$LoginData</ID>
+    <ID>MatchingDeclarationName:LoginRequestModels.kt$LoginRequest</ID>
+    <ID>MatchingDeclarationName:ModuleInfoModels.kt$ModuleInfo</ID>
+    <ID>MatchingDeclarationName:OrderItemSyncDtoModels.kt$OrderItemSyncDto</ID>
+    <ID>MatchingDeclarationName:OrderSyncDtoModels.kt$OrderSyncDto</ID>
+    <ID>MatchingDeclarationName:PaginatedListModels.kt$PaginatedList&lt;T&gt;</ID>
+    <ID>MatchingDeclarationName:RefreshRequestModels.kt$RefreshRequest</ID>
+    <ID>MatchingDeclarationName:ReservationSyncDtoModels.kt$ReservationSyncDto</ID>
+    <ID>MatchingDeclarationName:StatusDictionaryDtoModels.kt$StatusDictionaryDto</ID>
+    <ID>MatchingDeclarationName:TableDtoModels.kt$TableDto</ID>
+    <ID>MatchingDeclarationName:TableSyncDataModels.kt$TableSyncData</ID>
+    <ID>MatchingDeclarationName:TableSyncResponseModels.kt$TableSyncResponse</ID>
+    <ID>MatchingDeclarationName:TablesDataModels.kt$TablesData</ID>
+    <ID>MatchingDeclarationName:TokenResponseModels.kt$TokenResponse</ID>
+    <ID>MatchingDeclarationName:UserSyncDtoModels.kt$UserSyncDto</ID>
+    <ID>MaxLineLength:DishCompositionEntity.kt$DishCompositionEntity$ForeignKey(entity = IngredientEntity::class, parentColumns = ["id"], childColumns = ["ingredient_id"], onDelete = ForeignKey.CASCADE)</ID>
+    <ID>MaxLineLength:DishDetailScreen.kt$Text(language.choose("To danie nie ma okreslonych skladnikow.", "This dish has no listed ingredients."), color = Color.Gray)</ID>
+    <ID>MaxLineLength:DishDetailScreen.kt$text = "${String.format(java.util.Locale.US, "%.2f", dish.price / 100.0)} ${language.choose("zl", "PLN")}"</ID>
+    <ID>MaxLineLength:IngredientAllergenEntity.kt$IngredientAllergenEntity$ForeignKey(entity = IngredientEntity::class, parentColumns = ["id"], childColumns = ["ingredient_id"], onDelete = ForeignKey.CASCADE)</ID>
+    <ID>MaxLineLength:LoginScreen.kt$language.choose("Brak dostepu do serwera - pierwsza synchronizacja nie moze zostac wykonana", "No server access - first sync cannot be completed")</ID>
+    <ID>MaxLineLength:LoginScreen.kt$language.choose("Brak dostepu do serwera - uruchomiono tryb offline", "No server access - offline mode started")</ID>
+    <ID>MaxLineLength:LoginScreen.kt$language.choose("Pierwsze logowanie wymaga polaczenia z internetem do pobrania danych!", "First login needs an internet connection to download data!")</ID>
+    <ID>MaxLineLength:OrderAddScreen.kt$text = table?.let { language.choose("Stolik ${it.tableNumber}", "Table ${it.tableNumber}") } ?: language.choose("Stolik", "Table")</ID>
+    <ID>MaxLineLength:SyncRepository.kt$SyncRepository$"Assigning waiter: tableId=$tableId, reservationToken=${reservationSelection.token}, reservationType=${reservationSelection.type}"</ID>
+    <ID>MaxLineLength:TableDetailScreen.kt$displayedToken == "AVAILABLE" -&gt; language.choose("Brak pozycji - stolik wolny", "No items - table available")</ID>
+    <ID>MaxLineLength:TableDetailScreen.kt$statusSaveError = error.message ?: language.choose("Nie udalo sie zajac stolika.", "Could not occupy the table.")</ID>
+    <ID>MaxLineLength:TableDetailScreen.kt$statusSaveError = error.message ?: language.choose("Nie udalo sie zapisac statusu stolika.", "Could not save table status.")</ID>
+    <ID>MaxLineLength:TableDetailScreen.kt$statusSaveError = language.choose("Wybierz kelnera przed zajeciem stolika.", "Select a waiter before occupying the table.")</ID>
+    <ID>MaxLineLength:TableDetailScreen.kt$tableMoveError = language.choose("Nie udalo sie przeniesc zamowienia na wybrany stolik.", "Could not move the order to the selected table.")</ID>
+    <ID>MaxLineLength:TableDetailScreen.kt$val encodedName = Uri.encode(language.choose("Stolik ${targetTable.tableNumber}", "Table ${targetTable.tableNumber}"))</ID>
+    <ID>NewLineAtEndOfFile:AllergenEntity.kt$com.example.quilacarne.data.local.entities.AllergenEntity.kt</ID>
+    <ID>NewLineAtEndOfFile:AuthInterceptor.kt$com.example.quilacarne.data.remote.network.AuthInterceptor.kt</ID>
+    <ID>NewLineAtEndOfFile:Color.kt$com.example.quilacarne.ui.theme.Color.kt</ID>
+    <ID>NewLineAtEndOfFile:Converters.kt$com.example.quilacarne.data.local.Converters.kt</ID>
+    <ID>NewLineAtEndOfFile:DishCategoryEntity.kt$com.example.quilacarne.data.local.entities.DishCategoryEntity.kt</ID>
+    <ID>NewLineAtEndOfFile:DishCompositionEntity.kt$com.example.quilacarne.data.local.entities.DishCompositionEntity.kt</ID>
+    <ID>NewLineAtEndOfFile:DishEntity.kt$com.example.quilacarne.data.local.entities.DishEntity.kt</ID>
+    <ID>NewLineAtEndOfFile:DishWithIngredients.kt$com.example.quilacarne.data.local.relations.DishWithIngredients.kt</ID>
+    <ID>NewLineAtEndOfFile:GuestReportEntity.kt$com.example.quilacarne.data.local.entities.GuestReportEntity.kt</ID>
+    <ID>NewLineAtEndOfFile:GuestReportStatusEntity.kt$com.example.quilacarne.data.local.entities.GuestReportStatusEntity.kt</ID>
+    <ID>NewLineAtEndOfFile:IngredientAllergenEntity.kt$com.example.quilacarne.data.local.entities.IngredientAllergenEntity.kt</ID>
+    <ID>NewLineAtEndOfFile:IngredientEntity.kt$com.example.quilacarne.data.local.entities.IngredientEntity.kt</ID>
+    <ID>NewLineAtEndOfFile:OrderEntity.kt$com.example.quilacarne.data.local.entities.OrderEntity.kt</ID>
+    <ID>NewLineAtEndOfFile:OrderItemEntity.kt$com.example.quilacarne.data.local.entities.OrderItemEntity.kt</ID>
+    <ID>NewLineAtEndOfFile:OrderItemWithDish.kt$com.example.quilacarne.data.local.relations.OrderItemWithDish.kt</ID>
+    <ID>NewLineAtEndOfFile:OrderStatusEntity.kt$com.example.quilacarne.data.local.entities.OrderStatusEntity.kt</ID>
+    <ID>NewLineAtEndOfFile:RestaurantTableEntity.kt$com.example.quilacarne.data.local.entities.RestaurantTableEntity.kt</ID>
+    <ID>NewLineAtEndOfFile:SecurityUtil.kt$com.example.quilacarne.utils.SecurityUtil.kt</ID>
+    <ID>NewLineAtEndOfFile:TableStatusEntity.kt$com.example.quilacarne.data.local.entities.TableStatusEntity.kt</ID>
+    <ID>NewLineAtEndOfFile:Theme.kt$com.example.quilacarne.ui.theme.Theme.kt</ID>
+    <ID>NewLineAtEndOfFile:Type.kt$com.example.quilacarne.ui.theme.Type.kt</ID>
+    <ID>NewLineAtEndOfFile:UsersEntity.kt$com.example.quilacarne.data.local.entities.UsersEntity.kt</ID>
+    <ID>ReturnCount:MainActivity.kt$MainActivity$private suspend fun reauthenticateOfflineSession( db: AppDatabase, tokenManager: TokenManager )</ID>
+    <ID>ReturnCount:NetworkMonitor.kt$NetworkMonitor$@SuppressLint("MissingPermission") private fun isOnlineNow(): Boolean</ID>
+    <ID>ReturnCount:SyncLogic.kt$TableStatusSyncLogic$fun chooseStatusToken(tokens: List&lt;String&gt;): String?</ID>
+    <ID>ReturnCount:SyncLogic.kt$TableStatusSyncLogic$fun resolveSyncedTableStatusToken( remoteStatusToken: String?, existingStatusToken: String?, remoteUpdatedAt: String?, existingUpdatedAt: String? ): String?</ID>
+    <ID>ReturnCount:SyncRepository.kt$SyncRepository$private suspend fun cacheDishImage(dishId: UUID, imageUrl: String?): String?</ID>
+    <ID>ReturnCount:TokenAuthenticator.kt$TokenAuthenticator$override fun authenticate(route: Route?, response: Response): Request?</ID>
+    <ID>SwallowedException:AppDatabase.kt$AppDatabase.Companion$e: Exception</ID>
+    <ID>SwallowedException:MainActivity.kt$MainActivity$e: Exception</ID>
+    <ID>ThrowsCount:SyncRepository.kt$SyncRepository$private suspend fun syncOrdersAndItems()</ID>
+    <ID>TooGenericExceptionCaught:ApiLoggingInterceptor.kt$ApiLoggingInterceptor$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:AppDatabase.kt$AppDatabase.Companion$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:AuthRepository.kt$AuthRepository$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:MainActivity.kt$MainActivity$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:OrderRepository.kt$OrderRepository$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:SyncRepository.kt$SyncRepository$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:TableDetailViewModel.kt$TableDetailViewModel$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:TablesViewModel.kt$TablesViewModel$e: Exception</ID>
+    <ID>TooGenericExceptionThrown:SyncLogic.kt$ApiResponseLogic$throw Exception(body.message ?: body.errorMessages?.joinToString() ?: fallbackMessage)</ID>
+    <ID>TooGenericExceptionThrown:SyncRepository.kt$SyncRepository$throw Exception("Brak danych manifestu")</ID>
+    <ID>TooGenericExceptionThrown:SyncRepository.kt$SyncRepository$throw Exception("Serwer API jest niedostępny")</ID>
+    <ID>TooGenericExceptionThrown:SyncRepository.kt$SyncRepository$throw Exception(body?.message ?: ApiResponseLogic.errorMessageFromBody(rawError) ?: fallbackMessage)</ID>
+    <ID>TooGenericExceptionThrown:SyncRepository.kt$SyncRepository$throw Exception(bootstrapResponse.body()?.message ?: "Błąd pobierania manifestu użytkowników")</ID>
+    <ID>TooGenericExceptionThrown:SyncRepository.kt$SyncRepository$throw Exception(bootstrapResponse.body()?.message ?: "Błąd pobierania manifestu")</ID>
+    <ID>TooGenericExceptionThrown:SyncRepository.kt$SyncRepository$throw Exception(response.body()?.message ?: "Błąd synchronizacji pozycji")</ID>
+    <ID>TooGenericExceptionThrown:SyncRepository.kt$SyncRepository$throw Exception(response.body()?.message ?: "Błąd synchronizacji rezerwacji")</ID>
+    <ID>TooGenericExceptionThrown:SyncRepository.kt$SyncRepository$throw Exception(response.body()?.message ?: "Błąd synchronizacji użytkowników")</ID>
+    <ID>TooGenericExceptionThrown:SyncRepository.kt$SyncRepository$throw Exception(response.body()?.message ?: "Błąd synchronizacji zamówień")</ID>
+    <ID>TooGenericExceptionThrown:SyncRepository.kt$SyncRepository$throw Exception(responsePl.body()?.message ?: "Blad pobierania statusow")</ID>
+    <ID>TooManyFunctions:SyncRepository.kt$SyncRepository</ID>
+    <ID>UnusedImports:DishCompositionEntity.kt$import androidx.room.PrimaryKey</ID>
+    <ID>UnusedImports:HeaderComponents.kt$import androidx.compose.ui.geometry.Rect</ID>
+    <ID>UnusedImports:IngredientAllergenEntity.kt$import androidx.room.PrimaryKey</ID>
+    <ID>UnusedImports:MenuScreen.kt$import java.util.UUID</ID>
+    <ID>UnusedImports:SyncRepository.kt$import com.example.quilacarne.data.remote.dto.CategoryDto</ID>
+    <ID>UnusedImports:TablesScreen.kt$import com.example.quilacarne.data.local.entities.RestaurantTableEntity</ID>
+    <ID>UnusedImports:Theme.kt$import android.app.Activity</ID>
+    <ID>UnusedParameter:TableDetailViewModel.kt$TableDetailViewModel$name: String</ID>
+    <ID>UnusedParameter:TableDetailViewModel.kt$TableDetailViewModel$statusName: String</ID>
+    <ID>UnusedParameter:TableDetailViewModel.kt$TableDetailViewModel$statusToken: String</ID>
+    <ID>UseCheckOrError:SyncRepository.kt$SyncRepository$throw IllegalStateException("API przypisalo kelnera, ale synchronizacja nie zwrocila aktywnego zamowienia.")</ID>
+    <ID>UseCheckOrError:SyncRepository.kt$SyncRepository$throw IllegalStateException("Brak aktywnego zamowienia dla stolika")</ID>
+    <ID>UseCheckOrError:SyncRepository.kt$SyncRepository$throw IllegalStateException("Brak tokena API dla $type $localId")</ID>
+    <ID>UseCheckOrError:SyncRepository.kt$SyncRepository$throw IllegalStateException("Brak tokena klienta dla aktywnej rezerwacji")</ID>
+    <ID>UseCheckOrError:SyncRepository.kt$SyncRepository$throw IllegalStateException("Brak tokena rezerwacji dla zamowienia")</ID>
+    <ID>WildcardImport:AppDatabase.kt$import com.example.quilacarne.data.local.dao.*</ID>
+    <ID>WildcardImport:AppDatabase.kt$import com.example.quilacarne.data.local.entities.*</ID>
+    <ID>WildcardImport:AuthService.kt$import com.example.quilacarne.data.remote.dto.*</ID>
+    <ID>WildcardImport:DishCategoryDao.kt$import androidx.room.*</ID>
+    <ID>WildcardImport:DishDao.kt$import androidx.room.*</ID>
+    <ID>WildcardImport:DishDetailScreen.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:DishDetailScreen.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:DishDetailScreen.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:DishDetailScreen.kt$import com.example.quilacarne.ui.theme.*</ID>
+    <ID>WildcardImport:DishService.kt$import com.example.quilacarne.data.remote.dto.*</ID>
+    <ID>WildcardImport:DishWithIngredients.kt$import com.example.quilacarne.data.local.entities.*</ID>
+    <ID>WildcardImport:HeaderComponents.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:HeaderComponents.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:HeaderComponents.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:HeaderComponents.kt$import com.example.quilacarne.ui.theme.*</ID>
+    <ID>WildcardImport:IngredientDao.kt$import androidx.room.*</ID>
+    <ID>WildcardImport:LoginScreen.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:LoginScreen.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:LoginScreen.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:MainActivity.kt$import com.example.quilacarne.ui.screens.*</ID>
+    <ID>WildcardImport:MainScreen.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:MainScreen.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:MainScreen.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:MainScreen.kt$import com.example.quilacarne.ui.theme.*</ID>
+    <ID>WildcardImport:MenuScreen.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:MenuScreen.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:MenuScreen.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:MenuScreen.kt$import com.example.quilacarne.ui.theme.*</ID>
+    <ID>WildcardImport:MenuViewModel.kt$import kotlinx.coroutines.flow.*</ID>
+    <ID>WildcardImport:OrderAddScreen.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:OrderAddScreen.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:OrderAddScreen.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:OrderDao.kt$import androidx.room.*</ID>
+    <ID>WildcardImport:OrderRepository.kt$import com.example.quilacarne.data.remote.dto.*</ID>
+    <ID>WildcardImport:OrderService.kt$import com.example.quilacarne.data.remote.dto.*</ID>
+    <ID>WildcardImport:ReportClientScreen.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:ReportClientScreen.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:ReportClientScreen.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:RestaurantTableDao.kt$import androidx.room.*</ID>
+    <ID>WildcardImport:SyncScreen.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:SyncScreen.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:SyncScreen.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:TableDetailScreen.kt$import androidx.compose.foundation.*</ID>
+    <ID>WildcardImport:TableDetailScreen.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:TableDetailScreen.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:TableDetailScreen.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:TableDetailScreen.kt$import androidx.compose.ui.unit.*</ID>
+    <ID>WildcardImport:TableDetailScreen.kt$import com.example.quilacarne.ui.theme.*</ID>
+    <ID>WildcardImport:TableService.kt$import com.example.quilacarne.data.remote.dto.*</ID>
+    <ID>WildcardImport:TableStatusDao.kt$import androidx.room.*</ID>
+    <ID>WildcardImport:TablesScreen.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:TablesScreen.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:TablesScreen.kt$import com.example.quilacarne.ui.theme.*</ID>
+    <ID>WildcardImport:UserDao.kt$import androidx.room.*</ID>
+  </CurrentIssues>
+</SmellBaseline>

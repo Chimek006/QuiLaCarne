@@ -16,6 +16,7 @@ import com.example.quilacarne.data.local.AppDatabase
 import com.example.quilacarne.data.local.TokenManager
 import com.example.quilacarne.data.remote.dto.LoginRequest
 import com.example.quilacarne.data.remote.network.NetworkMonitor
+import com.example.quilacarne.data.remote.network.RealtimeSyncClient
 import com.example.quilacarne.data.remote.network.RetrofitClient
 import com.example.quilacarne.data.repository.SyncRepository
 import com.example.quilacarne.ui.i18n.AppLanguageStore
@@ -28,6 +29,8 @@ import java.util.UUID
 import kotlin.concurrent.thread
 
 class MainActivity : ComponentActivity() {
+
+    private var realtimeSyncClient: RealtimeSyncClient? = null
 
     companion object {
         lateinit var networkMonitor: NetworkMonitor
@@ -273,10 +276,22 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onDestroy() {
+        realtimeSyncClient?.shutdown()
+        realtimeSyncClient = null
+        super.onDestroy()
+    }
+
     private fun startConnectionWatcher() {
         val db = AppDatabase.getDatabase(applicationContext)
         val tokenManager = TokenManager(applicationContext)
         val syncRepository = SyncRepository(db, applicationContext)
+        val realtimeClient = RealtimeSyncClient(
+            tokenManager = tokenManager,
+            syncRepository = syncRepository,
+            scope = lifecycleScope
+        )
+        realtimeSyncClient = realtimeClient
 
         lifecycleScope.launch {
             var wasServerAvailable = false
@@ -293,6 +308,12 @@ class MainActivity : ComponentActivity() {
                 networkMonitor.updateServerAvailability(serverAvailable)
 
                 val hasActiveSession = !tokenManager.getAccessToken().isNullOrBlank()
+                if (serverAvailable && hasActiveSession) {
+                    realtimeClient.start()
+                } else {
+                    realtimeClient.stop()
+                }
+
                 val shouldSync = serverAvailable &&
                     !wasServerAvailable &&
                     tokenManager.isBootstrapped() &&

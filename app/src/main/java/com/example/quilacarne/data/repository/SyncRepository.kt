@@ -689,15 +689,20 @@ class SyncRepository(
 
     suspend fun occupyTableRemote(tableId: UUID): Result<UUID> = withContext(Dispatchers.IO) {
         runCatching {
-            val reservationToken = getActiveReservationTokenForTable(tableId)
+            val reservationSelection = getReservationForOccupyingTable(tableId)
 
-            if (reservationToken.isNullOrBlank()) {
+            if (reservationSelection == null) {
                 throw UnsupportedOperationException(
-                    "Nie mozna zajac stolika bez aktualnej rezerwacji."
+                    "Nie mozna zajac stolika bez aktualnej lub nadchodzacej rezerwacji."
                 )
             }
 
-            orderService.assignWaiterToReservation(reservationToken)
+            Log.d(
+                "OCCUPY_TABLE",
+                "Assigning waiter: tableId=$tableId, reservationToken=${reservationSelection.token}, reservationType=${reservationSelection.type}"
+            )
+
+            orderService.assignWaiterToReservation(reservationSelection.token)
                 .requireApiSuccess("Nie udalo sie przypisac kelnera w API")
 
             syncOperationalData().getOrThrow()
@@ -753,12 +758,37 @@ class SyncRepository(
         }
     }
 
-    private suspend fun getActiveReservationTokenForTable(tableId: UUID): String? {
+    private suspend fun getReservationForOccupyingTable(tableId: UUID): OccupyReservationSelection? {
         syncReservations()
 
-        return database.reservationDao()
-            .getCurrentReservationForTable(tableId, System.currentTimeMillis())
-            ?.token
+        val nowMillis = System.currentTimeMillis()
+        val reservationDao = database.reservationDao()
+
+        val current = reservationDao.getCurrentReservationForTable(tableId, nowMillis)
+        val upcoming = if (current == null) {
+            reservationDao.getUpcomingReservationForTable(tableId, nowMillis)
+        } else {
+            null
+        }
+
+        val selection = ReservationSelectionLogic.chooseReservationForOccupy(
+            currentToken = current?.token,
+            upcomingToken = upcoming?.token
+        )
+
+        if (selection != null) {
+            Log.d(
+                "OCCUPY_TABLE",
+                "Using ${selection.type} reservation token=${selection.token} for tableId=$tableId"
+            )
+        } else {
+            Log.w(
+                "OCCUPY_TABLE",
+                "No current or upcoming reservation found for tableId=$tableId"
+            )
+        }
+
+        return selection
     }
 
     suspend fun createClientReportForTable(

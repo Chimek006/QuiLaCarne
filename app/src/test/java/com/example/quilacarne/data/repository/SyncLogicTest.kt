@@ -8,6 +8,38 @@ import org.junit.Test
 
 class SyncLogicTest {
     @Test
+    fun chooseReservationForOccupyUsesCurrentBeforeUpcoming() {
+        val selection = ReservationSelectionLogic.chooseReservationForOccupy(
+            currentToken = "current-token",
+            upcomingToken = "upcoming-token"
+        )
+
+        assertEquals("current-token", selection?.token)
+        assertEquals("current", selection?.type)
+    }
+
+    @Test
+    fun chooseReservationForOccupyFallsBackToUpcoming() {
+        val selection = ReservationSelectionLogic.chooseReservationForOccupy(
+            currentToken = null,
+            upcomingToken = "upcoming-token"
+        )
+
+        assertEquals("upcoming-token", selection?.token)
+        assertEquals("upcoming", selection?.type)
+    }
+
+    @Test
+    fun chooseReservationForOccupyReturnsNullWhenNoReservationExists() {
+        assertNull(
+            ReservationSelectionLogic.chooseReservationForOccupy(
+                currentToken = null,
+                upcomingToken = null
+            )
+        )
+    }
+
+    @Test
     fun chooseStatusTokenUsesTableStatusPriority() {
         assertEquals(
             "OUT_OF_SERVICE",

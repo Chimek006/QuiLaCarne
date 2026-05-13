@@ -1,2 +1,4 @@
 sdk.dir=C\:\\PATH\\AppData\\Local\\Android\\Sdk
 BASE_URL=https://api.quilacarne.com.pl/api/
+# Optional realtime sync endpoint. Leave empty until backend exposes a WebSocket endpoint.
+WEBSOCKET_URL=

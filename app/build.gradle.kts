@@ -1,3 +1,5 @@
+import io.gitlab.arturbosch.detekt.Detekt
+import io.gitlab.arturbosch.detekt.DetektCreateBaselineTask
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.util.Properties
 
@@ -7,6 +9,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
     alias(libs.plugins.kover)
+    alias(libs.plugins.detekt)
 }
 
 val localProperties = Properties()
@@ -15,6 +18,7 @@ if (localPropertiesFile.exists()) {
     localProperties.load(localPropertiesFile.inputStream())
 }
 val baseUrl = localProperties.getProperty("BASE_URL") ?: "https://api.quilacarne.com.pl/api/"
+val webSocketUrl = localProperties.getProperty("WEBSOCKET_URL") ?: ""
 
 android {
     namespace = "com.example.quilacarne"
@@ -30,6 +34,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         buildConfigField("String", "BASE_URL", "\"$baseUrl\"")
+        buildConfigField("String", "WEBSOCKET_URL", "\"$webSocketUrl\"")
     }
 
     buildTypes {
@@ -118,6 +123,35 @@ kover {
             }
         }
     }
+}
+
+detekt {
+    toolVersion = libs.versions.detekt.get()
+    source.setFrom("src/main/java", "src/test/java")
+    config.setFrom(rootProject.files("config/detekt/detekt.yml"))
+    baseline = rootProject.file("config/detekt/baseline.xml")
+    buildUponDefaultConfig = true
+    allRules = false
+    parallel = true
+    ignoreFailures = false
+    basePath = rootProject.projectDir.absolutePath
+}
+
+tasks.withType<Detekt>().configureEach {
+    jvmTarget = JavaVersion.VERSION_11.toString()
+    exclude("**/build/**", "**/generated/**")
+
+    reports {
+        html.required.set(true)
+        xml.required.set(true)
+        sarif.required.set(true)
+        md.required.set(true)
+    }
+}
+
+tasks.withType<DetektCreateBaselineTask>().configureEach {
+    jvmTarget = JavaVersion.VERSION_11.toString()
+    exclude("**/build/**", "**/generated/**")
 }
 
 dependencies {

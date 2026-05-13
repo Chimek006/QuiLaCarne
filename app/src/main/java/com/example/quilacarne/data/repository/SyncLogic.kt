@@ -5,6 +5,30 @@ import com.example.quilacarne.utils.ReservationTimeUtils
 import com.google.gson.JsonParser
 import java.util.Locale
 
+internal data class OccupyReservationSelection(
+    val token: String,
+    val type: String
+)
+
+internal object ReservationSelectionLogic {
+    fun chooseReservationForOccupy(
+        currentToken: String?,
+        upcomingToken: String?
+    ): OccupyReservationSelection? {
+        return when {
+            !currentToken.isNullOrBlank() -> OccupyReservationSelection(
+                token = currentToken,
+                type = "current"
+            )
+            !upcomingToken.isNullOrBlank() -> OccupyReservationSelection(
+                token = upcomingToken,
+                type = "upcoming"
+            )
+            else -> null
+        }
+    }
+}
+
 internal object TableStatusSyncLogic {
     private val priority = listOf(
         "OUT_OF_SERVICE",
