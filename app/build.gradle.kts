@@ -6,6 +6,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.kover)
 }
 
 val localProperties = Properties()
@@ -56,6 +57,67 @@ android {
         compose = true
         buildConfig = true
     }
+
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
+    }
+}
+
+kover {
+    reports {
+        filters {
+            includes {
+                classes(
+                    "com.example.quilacarne.data.local.TokenManager",
+                    "com.example.quilacarne.data.remote.network.RemoteTokenStore",
+                    "com.example.quilacarne.data.remote.network.NetworkIssueResolver",
+                    "com.example.quilacarne.data.repository.TableStatusSyncLogic",
+                    "com.example.quilacarne.data.repository.ApiResponseLogic",
+                    "com.example.quilacarne.utils.ReservationTimeUtils"
+                )
+            }
+            excludes {
+                classes(
+                    "*.BuildConfig",
+                    "*.MainActivity",
+                    "*ComposableSingletons*",
+                    "*Kt\$*",
+                    "com.example.quilacarne.data.repository.AuthRepository",
+                    "com.example.quilacarne.data.repository.OrderRepository",
+                    "com.example.quilacarne.data.repository.SyncRepository",
+                    "com.example.quilacarne.data.remote.api.*",
+                    "com.example.quilacarne.data.remote.dto.*",
+                    "com.example.quilacarne.data.remote.network.AuthInterceptor",
+                    "com.example.quilacarne.data.remote.network.ApiLoggingInterceptor",
+                    "com.example.quilacarne.data.remote.network.RetrofitClient",
+                    "com.example.quilacarne.data.remote.network.TokenAuthenticator",
+                    "com.example.quilacarne.data.remote.network.NetworkMonitor",
+                    "com.example.quilacarne.data.local.AppDatabase",
+                    "com.example.quilacarne.data.local.Converters",
+                    "com.example.quilacarne.data.local.entities.*",
+                    "com.example.quilacarne.data.local.relations.*",
+                    "com.example.quilacarne.ui.*"
+                )
+                packages(
+                    "com.example.quilacarne.ui",
+                    "com.example.quilacarne.data.remote.api",
+                    "com.example.quilacarne.data.remote.dto"
+                )
+                annotatedBy(
+                    "androidx.compose.runtime.Composable",
+                    "androidx.compose.ui.tooling.preview.Preview"
+                )
+            }
+        }
+
+        verify {
+            rule {
+                minBound(80)
+            }
+        }
+    }
 }
 
 dependencies {
@@ -90,6 +152,11 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.5.0")
 
     testImplementation(libs.junit)
+    testImplementation(libs.androidx.test.core)
+    testImplementation(libs.androidx.junit)
+    testImplementation(libs.androidx.room.testing)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.robolectric)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

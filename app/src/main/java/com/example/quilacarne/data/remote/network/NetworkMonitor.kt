@@ -77,10 +77,9 @@ class NetworkMonitor(context: Context) {
     }
 
     private fun updateConnectionIssue() {
-        _connectionIssue.value = when {
-            !_isOnline.value -> ConnectionIssue.NoInternet
-            !_isServerAvailable.value -> ConnectionIssue.NoServer
-            else -> ConnectionIssue.None
-        }
+        _connectionIssue.value = NetworkIssueResolver.resolveConnectionIssue(
+            isOnline = _isOnline.value,
+            isServerAvailable = _isServerAvailable.value
+        )
     }
 }

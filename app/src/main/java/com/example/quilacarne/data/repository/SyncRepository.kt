@@ -43,7 +43,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.json.JSONObject
 import retrofit2.Response
 import java.io.File
 import java.net.URI
@@ -194,7 +193,7 @@ class SyncRepository(
                     val tableId = dto.token.toStableUUID()
                     val existingStatusToken = existingStatusTokensByTableId[tableId]
                     val remoteStatusToken = dto.currentStatusToken()
-                    val statusToken = resolveSyncedTableStatusToken(
+                    val statusToken = TableStatusSyncLogic.resolveSyncedTableStatusToken(
                         remoteStatusToken = remoteStatusToken,
                         existingStatusToken = existingStatusToken,
                         remoteUpdatedAt = dto.updatedAt,
@@ -301,77 +300,20 @@ class SyncRepository(
     }
 
     private fun TableDto.currentStatusToken(): String? {
-        val tokens = buildList {
+        return TableStatusSyncLogic.chooseStatusToken(
+            buildList {
             statusToken?.takeIf { it.isNotBlank() }?.let { add(it) }
             addAll(statusTokens.filter { it.isNotBlank() })
-        }
-
-        if (tokens.isEmpty()) return null
-
-        val tokensByName = tokens.associateBy { it.uppercase(Locale.US) }
-        val priority = listOf(
-            "OUT_OF_SERVICE",
-            "CLEANING",
-            "OCCUPIED",
-            "RESERVED",
-            "AVAILABLE"
-        )
-
-        priority.forEach { preferredToken ->
-            tokensByName[preferredToken]?.let { return it }
-        }
-
-        return tokens.first()
-    }
-
-    private fun resolveSyncedTableStatusToken(
-        remoteStatusToken: String?,
-        existingStatusToken: String?,
-        remoteUpdatedAt: String?,
-        existingUpdatedAt: String?
-    ): String? {
-        val remoteToken = remoteStatusToken?.uppercase(Locale.US)
-        val existingToken = existingStatusToken?.uppercase(Locale.US)
-
-        if (remoteToken == null) return existingToken
-
-        val remoteSaysAvailable = remoteToken == "AVAILABLE"
-        val existingIsBusyState = existingToken in setOf("OCCUPIED", "CLEANING", "OUT_OF_SERVICE")
-
-        if (remoteSaysAvailable && existingIsBusyState) {
-            val remoteMillis = remoteUpdatedAt
-                ?.let { ReservationTimeUtils.parseApiTimestampMillis(it) }
-            val existingMillis = existingUpdatedAt
-                ?.let { ReservationTimeUtils.parseApiTimestampMillis(it) }
-
-            if (remoteMillis == null || existingMillis == null || remoteMillis <= existingMillis) {
-                return existingToken
             }
-        }
-
-        return remoteToken
+        )
     }
 
     private fun String.toTableStatusName(): String {
-        return when (uppercase()) {
-            "AVAILABLE" -> "Wolny"
-            "OCCUPIED" -> "Zajęty"
-            "RESERVED" -> "Zarezerwowany"
-            "CLEANING" -> "Do sprzątnięcia"
-            "OUT_OF_SERVICE" -> "Wyłączony"
-            else -> lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() }
-        }
+        return TableStatusSyncLogic.tableStatusNamePl(this)
     }
 
     private fun String.toTableStatusNameEn(): String {
-        return when (uppercase()) {
-            "AVAILABLE" -> "Available"
-            "OCCUPIED" -> "Occupied"
-            "RESERVED" -> "Reserved"
-            "CLEANING" -> "Cleaning"
-            "OUT_OF_SERVICE" -> "Out of service"
-            else -> lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() }
-        }
+        return TableStatusSyncLogic.tableStatusNameEn(this)
     }
 
     private suspend fun syncOrdersAndItems() {
@@ -863,26 +805,10 @@ class SyncRepository(
         val body = body()
         if (!isSuccessful) {
             val rawError = errorBody()?.string()
-            throw Exception(body?.message ?: rawError.toApiMessageOrNull() ?: fallbackMessage)
+            throw Exception(body?.message ?: ApiResponseLogic.errorMessageFromBody(rawError) ?: fallbackMessage)
         }
 
-        if (body == null) return
-
-        val hasErrorMessages = body.errorMessages?.isNotEmpty() == true
-        val statusCodeLooksSuccessful = body.statusCode in 200..299
-        val wrapperLooksSuccessful = body.isSuccess || statusCodeLooksSuccessful || (!hasErrorMessages && body.statusCode == 0)
-
-        if (!wrapperLooksSuccessful) {
-            throw Exception(body.message ?: body.errorMessages?.joinToString() ?: fallbackMessage)
-        }
-    }
-
-    private fun String?.toApiMessageOrNull(): String? {
-        val raw = this?.takeIf { it.isNotBlank() } ?: return null
-
-        return runCatching {
-            JSONObject(raw).optString("message").takeIf { it.isNotBlank() }
-        }.getOrNull() ?: raw
+        ApiResponseLogic.assertWrapperSuccess(body, fallbackMessage)
     }
 
     private suspend fun applyLocalTableStatus(
