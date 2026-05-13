@@ -5,9 +5,9 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.room.withTransaction
+import com.example.quilacarne.data.local.entities.OrderEntity
 import com.example.quilacarne.data.local.entities.TableStatusEntity
 import com.example.quilacarne.data.local.entities.UsersEntity
-import com.example.quilacarne.data.local.entities.OrderEntity
 import com.example.quilacarne.data.local.entities.RestaurantTableEntity
 import com.example.quilacarne.data.local.relations.OrderItemWithDish
 import com.example.quilacarne.data.local.TokenManager
@@ -158,15 +158,15 @@ class TableDetailViewModel(application: Application) : AndroidViewModel(applicat
         tableId: UUID,
         token: String,
         name: String,
-        onSaved: () -> Unit = {}
+        onResult: (Result<Unit>) -> Unit = {}
     ) {
         viewModelScope.launch {
-            syncRepository.changeTableStatusRemote(tableId, token)
+            val result = syncRepository.changeTableStatusRemote(tableId, token)
                 .onFailure { error ->
                     Log.w("TABLE_REMOTE", "Nie udalo sie zapisac statusu stolika w API: ${error.message}")
                 }
 
-            onSaved()
+            onResult(result)
         }
     }
 
@@ -175,44 +175,18 @@ class TableDetailViewModel(application: Application) : AndroidViewModel(applicat
         statusToken: String,
         statusName: String,
         waiterId: UUID,
-        onOrderReady: (UUID) -> Unit
+        onResult: (Result<UUID>) -> Unit
     ) {
         viewModelScope.launch {
-            syncRepository.occupyTableRemote(tableId)
+            val result = syncRepository.occupyTableRemote(tableId)
                 .onSuccess { remoteOrderId ->
                     db.orderDao().updateOrderWaiter(remoteOrderId, waiterId, getCurrentTimestamp())
-                    onOrderReady(remoteOrderId)
-                    return@launch
                 }
                 .onFailure { error ->
                     Log.w("TABLE_REMOTE", "Nie udalo sie zajac stolika przez API: ${error.message}")
                 }
 
-            val now = getCurrentTimestamp()
-            val statusId = ensureStatus(statusToken, statusName)
-            val orderId = db.withTransaction {
-                db.restaurantTableDao().updateStatus(tableId, statusId, now)
-
-                val activeOrder = db.orderDao().getActiveOrderForTableOnce(tableId)
-
-                if (activeOrder != null) {
-                    db.orderDao().updateOrderWaiter(activeOrder.id, waiterId, now)
-                    activeOrder.id
-                } else {
-                    val newOrder = OrderEntity(
-                        id = UUID.randomUUID(),
-                        tableId = tableId,
-                        waiterId = waiterId,
-                        statusId = null,
-                        totalPrice = 0,
-                        createdAt = now,
-                        updatedAt = now
-                    )
-                    db.orderDao().insertOrder(newOrder)
-                    newOrder.id
-                }
-            }
-            onOrderReady(orderId)
+            onResult(result)
         }
     }
 

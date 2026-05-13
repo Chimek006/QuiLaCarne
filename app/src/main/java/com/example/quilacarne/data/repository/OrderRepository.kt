@@ -1,7 +1,7 @@
 package com.example.quilacarne.data.repository
 
 import com.example.quilacarne.data.remote.network.RetrofitClient
-import com.example.quilacarne.data.remote.models.*
+import com.example.quilacarne.data.remote.dto.*
 import java.lang.Exception
 
 class OrderRepository {

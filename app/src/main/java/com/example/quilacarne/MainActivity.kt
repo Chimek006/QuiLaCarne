@@ -14,10 +14,12 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.quilacarne.data.local.AppDatabase
 import com.example.quilacarne.data.local.TokenManager
-import com.example.quilacarne.data.remote.models.LoginRequest
+import com.example.quilacarne.data.remote.dto.LoginRequest
 import com.example.quilacarne.data.remote.network.NetworkMonitor
 import com.example.quilacarne.data.remote.network.RetrofitClient
 import com.example.quilacarne.data.repository.SyncRepository
+import com.example.quilacarne.ui.i18n.AppLanguageStore
+import com.example.quilacarne.ui.screens.*
 import com.example.quilacarne.ui.theme.QuiLaCarneTheme
 import com.example.quilacarne.ui.viewmodels.TablesViewModel
 import kotlinx.coroutines.delay
@@ -39,6 +41,7 @@ class MainActivity : ComponentActivity() {
             NetworkMonitor(applicationContext)
 
         RetrofitClient.init(applicationContext)
+        AppLanguageStore.init(applicationContext)
         startConnectionWatcher()
 
         thread {

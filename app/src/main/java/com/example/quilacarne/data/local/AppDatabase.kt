@@ -8,7 +8,7 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import com.example.quilacarne.data.local.dao.*
 import com.example.quilacarne.data.local.entities.*
-import com.example.quilacarne.data.utils.SecurityUtil
+import com.example.quilacarne.utils.SecurityUtil
 import net.sqlcipher.database.SupportFactory
 
 @Database(
@@ -49,7 +49,6 @@ abstract class AppDatabase : RoomDatabase() {
 
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
-                // Czyszczenie starych plików z błędną wersją
                 try {
                     context.deleteDatabase("quilacarne_db-old")
                     context.deleteDatabase("quilacarne_db-v")
