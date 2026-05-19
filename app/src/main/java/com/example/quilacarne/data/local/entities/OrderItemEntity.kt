@@ -19,6 +19,7 @@ data class OrderItemEntity(
     @ColumnInfo(name = "product_id") val productId: UUID?,
     val quantity: Int,
     @ColumnInfo(name = "price_at_time_of_order") val priceAtTimeOfOrder: Int,
+    @ColumnInfo(name = "note") val note: String? = null,
     @ColumnInfo(name = "created_at") val createdAt: String,
     @ColumnInfo(name = "updated_at") val updatedAt: String,
     @ColumnInfo(name = "deleted_at") val deletedAt: String? = null

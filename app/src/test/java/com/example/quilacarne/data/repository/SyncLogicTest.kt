@@ -59,14 +59,36 @@ class SyncLogicTest {
     }
 
     @Test
-    fun resolveSyncedTableStatusKeepsNewerLocalBusyStateOverStaleAvailable() {
+    fun resolveSyncedTableStatusUsesRemoteAvailableOverLocalBusyState() {
         assertEquals(
-            "CLEANING",
+            "AVAILABLE",
             TableStatusSyncLogic.resolveSyncedTableStatusToken(
                 remoteStatusToken = "AVAILABLE",
                 existingStatusToken = "CLEANING",
                 remoteUpdatedAt = "2024-01-01T10:00:00Z",
                 existingUpdatedAt = "2024-01-01T10:05:00Z"
+            )
+        )
+    }
+
+    @Test
+    fun resolveSyncedTableStatusKeepsLocalStatusWhenRemoteStatusIsEmpty() {
+        assertEquals(
+            "OUT_OF_SERVICE",
+            TableStatusSyncLogic.resolveSyncedTableStatusToken(
+                remoteStatusToken = "",
+                existingStatusToken = "OUT_OF_SERVICE",
+                remoteUpdatedAt = "2024-01-01T10:10:00Z",
+                existingUpdatedAt = "2024-01-01T10:05:00Z"
+            )
+        )
+        assertEquals(
+            "OCCUPIED",
+            TableStatusSyncLogic.resolveSyncedTableStatusToken(
+                remoteStatusToken = null,
+                existingStatusToken = "OCCUPIED",
+                remoteUpdatedAt = null,
+                existingUpdatedAt = null
             )
         )
     }
@@ -93,6 +115,106 @@ class SyncLogicTest {
                 existingStatusToken = "AVAILABLE",
                 remoteUpdatedAt = null,
                 existingUpdatedAt = null
+            )
+        )
+    }
+
+    @Test
+    fun displayStatusKeepsPhysicalStatusesAboveReservationAndOrders() {
+        assertEquals(
+            "OUT_OF_SERVICE",
+            TableDisplayStatusLogic.resolveDisplayStatusToken(
+                physicalStatusToken = "OUT_OF_SERVICE",
+                hasActiveOrder = true,
+                hasReservation = true,
+                previousStatusToken = "RESERVED",
+                isSyncing = false
+            )
+        )
+        assertEquals(
+            "CLEANING",
+            TableDisplayStatusLogic.resolveDisplayStatusToken(
+                physicalStatusToken = "CLEANING",
+                hasActiveOrder = true,
+                hasReservation = true,
+                previousStatusToken = "OCCUPIED",
+                isSyncing = false
+            )
+        )
+    }
+
+    @Test
+    fun displayStatusDoesNotUseLocalOccupiedWithoutActiveOrder() {
+        assertEquals(
+            "RESERVED",
+            TableDisplayStatusLogic.resolveDisplayStatusToken(
+                physicalStatusToken = "OCCUPIED",
+                hasActiveOrder = false,
+                hasReservation = true,
+                previousStatusToken = null,
+                isSyncing = false
+            )
+        )
+        assertEquals(
+            "AVAILABLE",
+            TableDisplayStatusLogic.resolveDisplayStatusToken(
+                physicalStatusToken = "OCCUPIED",
+                hasActiveOrder = false,
+                hasReservation = false,
+                previousStatusToken = null,
+                isSyncing = false
+            )
+        )
+    }
+
+    @Test
+    fun displayStatusUsesOrderAndReservationBeforeAvailable() {
+        assertEquals(
+            "OCCUPIED",
+            TableDisplayStatusLogic.resolveDisplayStatusToken(
+                physicalStatusToken = "AVAILABLE",
+                hasActiveOrder = true,
+                hasReservation = true,
+                previousStatusToken = null,
+                isSyncing = false
+            )
+        )
+        assertEquals(
+            "RESERVED",
+            TableDisplayStatusLogic.resolveDisplayStatusToken(
+                physicalStatusToken = "AVAILABLE",
+                hasActiveOrder = false,
+                hasReservation = true,
+                previousStatusToken = null,
+                isSyncing = false
+            )
+        )
+    }
+
+    @Test
+    fun displayStatusKeepsPreviousBusyStatusDuringSyncWhenRawStateLooksAvailable() {
+        assertEquals(
+            "RESERVED",
+            TableDisplayStatusLogic.resolveDisplayStatusToken(
+                physicalStatusToken = "AVAILABLE",
+                hasActiveOrder = false,
+                hasReservation = false,
+                previousStatusToken = "RESERVED",
+                isSyncing = true
+            )
+        )
+    }
+
+    @Test
+    fun displayStatusAllowsAvailableAfterSyncCompletes() {
+        assertEquals(
+            "AVAILABLE",
+            TableDisplayStatusLogic.resolveDisplayStatusToken(
+                physicalStatusToken = "AVAILABLE",
+                hasActiveOrder = false,
+                hasReservation = false,
+                previousStatusToken = "CLEANING",
+                isSyncing = false
             )
         )
     }

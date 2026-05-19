@@ -1,7 +1,6 @@
 package com.example.quilacarne.data.repository
 
 import com.example.quilacarne.data.remote.dto.ApiResponse
-import com.example.quilacarne.utils.ReservationTimeUtils
 import com.google.gson.JsonParser
 import java.util.Locale
 
@@ -58,24 +57,38 @@ internal object TableStatusSyncLogic {
         remoteUpdatedAt: String?,
         existingUpdatedAt: String?
     ): String? {
-        val remoteToken = remoteStatusToken?.uppercase(Locale.US)
-        val existingToken = existingStatusToken?.uppercase(Locale.US)
+        return resolveSyncedTableStatusDecision(
+            remoteStatusToken = remoteStatusToken,
+            existingStatusToken = existingStatusToken,
+            remoteUpdatedAt = remoteUpdatedAt,
+            existingUpdatedAt = existingUpdatedAt
+        ).statusToken
+    }
 
-        if (remoteToken == null) return existingToken
+    fun resolveSyncedTableStatusDecision(
+        remoteStatusToken: String?,
+        existingStatusToken: String?,
+        remoteUpdatedAt: String?,
+        existingUpdatedAt: String?
+    ): TableStatusSyncDecision {
+        val remoteToken = remoteStatusToken
+            ?.takeIf { it.isNotBlank() }
+            ?.uppercase(Locale.US)
+        val existingToken = existingStatusToken
+            ?.takeIf { it.isNotBlank() }
+            ?.uppercase(Locale.US)
 
-        val remoteSaysAvailable = remoteToken == "AVAILABLE"
-        val existingIsBusyState = existingToken in setOf("OCCUPIED", "CLEANING", "OUT_OF_SERVICE")
-
-        if (remoteSaysAvailable && existingIsBusyState) {
-            val remoteMillis = remoteUpdatedAt?.let { ReservationTimeUtils.parseApiTimestampMillis(it) }
-            val existingMillis = existingUpdatedAt?.let { ReservationTimeUtils.parseApiTimestampMillis(it) }
-
-            if (remoteMillis == null || existingMillis == null || remoteMillis <= existingMillis) {
-                return existingToken
-            }
+        return if (remoteToken == null) {
+            TableStatusSyncDecision(
+                statusToken = existingToken,
+                reason = "remote-empty-keep-local"
+            )
+        } else {
+            TableStatusSyncDecision(
+                statusToken = remoteToken,
+                reason = "remote-status-accepted"
+            )
         }
-
-        return remoteToken
     }
 
     fun tableStatusNamePl(token: String): String {
@@ -98,6 +111,60 @@ internal object TableStatusSyncLogic {
             "OUT_OF_SERVICE" -> "Out of service"
             else -> token.lowercase(Locale.US).replace('_', ' ').replaceFirstChar { it.uppercase() }
         }
+    }
+}
+
+internal data class TableStatusSyncDecision(
+    val statusToken: String?,
+    val reason: String
+)
+
+internal object TableDisplayStatusLogic {
+    private val physicalStatusPriority = setOf(
+        "OUT_OF_SERVICE",
+        "CLEANING"
+    )
+    private val nonAvailableDisplayStatuses = setOf(
+        "OUT_OF_SERVICE",
+        "CLEANING",
+        "OCCUPIED",
+        "RESERVED"
+    )
+
+    fun resolveDisplayStatusToken(
+        physicalStatusToken: String?,
+        hasActiveOrder: Boolean,
+        hasReservation: Boolean,
+        previousStatusToken: String?,
+        isSyncing: Boolean
+    ): String {
+        val physicalToken = normalizeStatusToken(physicalStatusToken)
+        val previousToken = normalizeStatusToken(previousStatusToken)
+        val resolvedToken: String = when {
+            physicalToken != null && physicalToken in physicalStatusPriority -> physicalToken
+            hasActiveOrder -> "OCCUPIED"
+            hasReservation -> "RESERVED"
+            physicalToken == "AVAILABLE" -> physicalToken
+            physicalToken != null -> "AVAILABLE"
+            previousToken != null -> previousToken
+            else -> "AVAILABLE"
+        }
+
+        return if (
+            isSyncing &&
+            resolvedToken == "AVAILABLE" &&
+            previousToken in nonAvailableDisplayStatuses
+        ) {
+            previousToken ?: resolvedToken
+        } else {
+            resolvedToken
+        }
+    }
+
+    private fun normalizeStatusToken(token: String?): String? {
+        return token
+            ?.takeIf { it.isNotBlank() }
+            ?.uppercase(Locale.US)
     }
 }
 

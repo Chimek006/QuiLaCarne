@@ -1,6 +1,5 @@
 package com.example.quilacarne.ui.screens
 
-import android.net.Uri
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -18,7 +17,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.*
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import com.example.quilacarne.data.local.entities.RestaurantTableEntity
 import com.example.quilacarne.data.local.entities.TableStatusEntity
 import com.example.quilacarne.data.local.entities.UsersEntity
 import com.example.quilacarne.ui.i18n.AppLanguage
@@ -41,9 +39,8 @@ fun TableDetailScreen(
 ) {
     val orderItems by viewModel.orderItems.collectAsState()
     val statusDict by viewModel.statusDictionary.collectAsState()
-    val tableStatusId by viewModel.tableStatusId.collectAsState()
+    val displayStatusToken by viewModel.displayStatusToken.collectAsState()
     val waiters by viewModel.waiters.collectAsState()
-    val tables by viewModel.tables.collectAsState()
     val activeOrderId by viewModel.activeOrderId.collectAsState()
     val assignedWaiterName by viewModel.assignedWaiterName.collectAsState()
     val reservation by viewModel.reservation.collectAsState()
@@ -51,13 +48,10 @@ fun TableDetailScreen(
     val language = rememberAppLanguage()
     var showStatusDialog by remember { mutableStateOf(false) }
     var showWaiterDialog by remember { mutableStateOf(false) }
-    var showTableMoveDialog by remember { mutableStateOf(false) }
     var pendingOccupiedStatus by remember { mutableStateOf<TableStatusOption?>(null) }
     var stagedStatus by remember(tableId) { mutableStateOf<TableStatusOption?>(null) }
     var stagedWaiter by remember(tableId) { mutableStateOf<UsersEntity?>(null) }
     var isSavingChanges by remember { mutableStateOf(false) }
-    var isMovingTable by remember { mutableStateOf(false) }
-    var tableMoveError by remember { mutableStateOf<String?>(null) }
     var statusSaveError by remember(tableId) { mutableStateOf<String?>(null) }
 
     LaunchedEffect(tableId) {
@@ -68,17 +62,8 @@ fun TableDetailScreen(
         buildTableStatusOptions(statusDict, language)
     }
 
-    val currentStatusInfo = statusDict.find { it.id == tableStatusId }
-    val currentToken = currentStatusInfo?.token?.uppercase() ?: normalizeStatusToken(tableStatus)
-
-    val hasReservationDisplay = reservation != null && currentToken !in setOf(
-        "OUT_OF_SERVICE",
-        "CLEANING",
-        "OCCUPIED"
-    )
-    val effectiveToken = if (hasReservationDisplay) "RESERVED" else currentToken
-
-    val displayedToken = stagedStatus?.token ?: effectiveToken
+    val currentToken = displayStatusToken ?: normalizeStatusToken(tableStatus)
+    val displayedToken = stagedStatus?.token ?: currentToken
     val statusInfo = statusOptions.find { it.token == displayedToken }
 
     val displayStatusName = statusInfo?.name ?: when (displayedToken) {
@@ -93,11 +78,6 @@ fun TableDetailScreen(
     val (statusPillColor, statusTextColor) = getStatusColorsByToken(displayedToken)
     val displayedWaiterName = stagedWaiter?.username ?: assignedWaiterName
     val hasPendingChanges = stagedStatus != null || stagedWaiter != null
-    val targetTables = remember(tables, tableId) {
-        tables
-            .filter { it.id != tableId }
-            .sortedBy { it.tableNumber }
-    }
 
     val totalPrice = remember(orderItems) {
         orderItems.fold(0.0) { acc, wrapper ->
@@ -163,17 +143,12 @@ fun TableDetailScreen(
 
             ActionButtons(
                 canEditOrder = activeOrderId != null,
-                canMoveOrder = activeOrderId != null && !isMovingTable,
                 language = language,
                 onStatusClick = { showStatusDialog = true },
                 onEditOrder = {
                     activeOrderId?.let { orderId ->
                         navController.navigate("order_add/$tableId/$orderId")
                     }
-                },
-                onMoveTable = {
-                    tableMoveError = null
-                    showTableMoveDialog = true
                 }
             )
 
@@ -215,6 +190,7 @@ fun TableDetailScreen(
                             OrderItemRow(
                                 name = wrapper.dish?.name ?: language.choose("Danie nieznane", "Unknown dish"),
                                 quantity = wrapper.item.quantity,
+                                note = wrapper.item.note,
                                 status = language.choose("W kuchni", "In kitchen"),
                                 price = wrapper.item.priceAtTimeOfOrder.toDouble(),
                                 language = language,
@@ -248,6 +224,17 @@ fun TableDetailScreen(
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 onClick = saveClick@{
                     val status = stagedStatus ?: return@saveClick
+                    statusTransitionError(
+                        currentToken = currentToken,
+                        targetToken = status.token,
+                        language = language,
+                        hasReservation = reservation != null
+                    )?.let { message ->
+                        statusSaveError = message
+                        stagedStatus = null
+                        stagedWaiter = null
+                        return@saveClick
+                    }
                     isSavingChanges = true
                     statusSaveError = null
 
@@ -269,6 +256,8 @@ fun TableDetailScreen(
                                         navController.navigate("order_add/$tableId/$orderId")
                                     }
                                     .onFailure { error ->
+                                        stagedStatus = null
+                                        stagedWaiter = null
                                         statusSaveError = error.message ?: language.choose("Nie udalo sie zajac stolika.", "Could not occupy the table.")
                                     }
                             }
@@ -290,6 +279,8 @@ fun TableDetailScreen(
                                     statusSaveError = null
                                 }
                                 .onFailure { error ->
+                                    stagedStatus = null
+                                    stagedWaiter = null
                                     statusSaveError = error.message ?: language.choose("Nie udalo sie zapisac statusu stolika.", "Could not save table status.")
                                 }
                         }
@@ -315,9 +306,20 @@ fun TableDetailScreen(
                 currentStatusToken = displayedToken,
                 language = language,
                 onDismiss = { showStatusDialog = false },
-                onStatusSelected = { status ->
+                onStatusSelected = statusSelected@ { status ->
                     showStatusDialog = false
                     statusSaveError = null
+                    statusTransitionError(
+                        currentToken = currentToken,
+                        targetToken = status.token,
+                        language = language,
+                        hasReservation = reservation != null
+                    )?.let { message ->
+                        statusSaveError = message
+                        stagedStatus = null
+                        stagedWaiter = null
+                        return@statusSelected
+                    }
                     if (status.token == "OCCUPIED") {
                         pendingOccupiedStatus = status
                         showWaiterDialog = true
@@ -350,43 +352,6 @@ fun TableDetailScreen(
             )
         }
 
-        if (showTableMoveDialog) {
-            TableMoveDialog(
-                tables = targetTables,
-                statuses = statusDict,
-                language = language,
-                isMoving = isMovingTable,
-                errorMessage = tableMoveError,
-                onDismiss = {
-                    if (!isMovingTable) {
-                        showTableMoveDialog = false
-                        tableMoveError = null
-                    }
-                },
-                onTableSelected = { targetTable ->
-                    isMovingTable = true
-                    tableMoveError = null
-                    viewModel.moveTableOrder(
-                        currentTableId = tableId,
-                        newTableId = targetTable.id
-                    ) { moved ->
-                        isMovingTable = false
-                        if (moved) {
-                            showTableMoveDialog = false
-                            val encodedName = Uri.encode(language.choose("Stolik ${targetTable.tableNumber}", "Table ${targetTable.tableNumber}"))
-                            val encodedStatus = Uri.encode("OCCUPIED")
-                            navController.navigate("table/${targetTable.id}/$encodedName/$encodedStatus") {
-                                popUpTo("tables") {
-                                    inclusive = false
-                                }
-                            }
-                        } else {
-                            tableMoveError = language.choose("Nie udalo sie przeniesc zamowienia na wybrany stolik.", "Could not move the order to the selected table.")
-                        }
-                    }
-                }
-            )
-        }
     }
 }
 
@@ -401,7 +366,15 @@ private fun getStatusColorsByToken(token: String): Pair<Color, Color> {
 }
 
 @Composable
-fun OrderItemRow(name: String, quantity: Int, status: String, price: Double, language: AppLanguage, accentColor: Color) {
+fun OrderItemRow(
+    name: String,
+    quantity: Int,
+    note: String?,
+    status: String,
+    price: Double,
+    language: AppLanguage,
+    accentColor: Color
+) {
     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(
             text = status.uppercase(),
@@ -413,7 +386,21 @@ fun OrderItemRow(name: String, quantity: Int, status: String, price: Double, lan
                 .padding(vertical = 4.dp),
             textAlign = TextAlign.Center
         )
-        Text(text = "$name x$quantity", fontSize = 15.sp, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
+        Column(
+            modifier = Modifier.weight(1f),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(text = "$name x$quantity", fontSize = 15.sp, textAlign = TextAlign.Center)
+            note?.takeIf { it.isNotBlank() }?.let { itemNote ->
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "${language.choose("Notatka", "Note")}: $itemNote",
+                    fontSize = 12.sp,
+                    color = green,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
 
         val formattedPrice = String.format(Locale.US, "%.2f", (price * quantity) / 100.0)
         val currency = language.choose("zl", "PLN")
@@ -479,11 +466,9 @@ fun SaveChangesButton(
 @Composable
 fun ActionButtons(
     canEditOrder: Boolean,
-    canMoveOrder: Boolean,
     language: AppLanguage,
     onStatusClick: () -> Unit,
-    onEditOrder: () -> Unit,
-    onMoveTable: () -> Unit
+    onEditOrder: () -> Unit
 ) {
     Column {
         Button(
@@ -502,21 +487,6 @@ fun ActionButtons(
             shape = RoundedCornerShape(12.dp)
         ) {
             Text(language.choose("Edytuj zamowienie", "Edit order"), color = Color.Black)
-        }
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Button(
-            onClick = onMoveTable,
-            enabled = canMoveOrder,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = green,
-                disabledContainerColor = Color(0xFFE0E0E0),
-                disabledContentColor = Color(0xFF8E8E8E)
-            ),
-            modifier = Modifier.fillMaxWidth().height(54.dp),
-            shape = RoundedCornerShape(12.dp)
-        ) {
-            Text(language.choose("Zmien stolik", "Move table"))
         }
     }
 }
@@ -617,101 +587,6 @@ private fun WaiterAssignmentDialog(
 }
 
 @Composable
-private fun TableMoveDialog(
-    tables: List<RestaurantTableEntity>,
-    statuses: List<TableStatusEntity>,
-    language: AppLanguage,
-    isMoving: Boolean,
-    errorMessage: String?,
-    onDismiss: () -> Unit,
-    onTableSelected: (RestaurantTableEntity) -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(24.dp),
-        containerColor = Color(0xFFF4F4F4),
-        title = {
-            Text(
-                text = language.choose("Wybierz nowy stolik", "Choose a new table"),
-                fontWeight = FontWeight.Bold,
-                color = Color.Black,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
-            )
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                errorMessage?.let {
-                    Text(
-                        text = it,
-                        color = Color(0xFFD32F2F),
-                        fontSize = 13.sp,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-
-                if (tables.isEmpty()) {
-                    Text(
-                        text = language.choose("Brak innych stolikow w lokalnej bazie.", "No other tables in the local database."),
-                        color = Color.Gray,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                } else {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 340.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        items(tables, key = { it.id }) { table ->
-                            val statusToken = getTableStatusToken(table, statuses)
-                            val isAvailable = statusToken == "AVAILABLE"
-                            val statusName = getTableStatusName(table, statuses, language)
-                            val helperText = if (isAvailable) {
-                                statusName
-                            } else {
-                                "${language.choose("Status", "Status")}: $statusName"
-                            }
-
-                            DialogOptionButton(
-                                text = language.choose("Stolik ${table.tableNumber}", "Table ${table.tableNumber}"),
-                                supportingText = helperText,
-                                enabled = isAvailable && !isMoving,
-                                onClick = { onTableSelected(table) }
-                            )
-                        }
-                    }
-                }
-
-                if (isMoving) {
-                    Box(
-                        modifier = Modifier.fillMaxWidth(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(
-                            color = green,
-                            strokeWidth = 3.dp,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                }
-            }
-        },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(
-                onClick = onDismiss,
-                enabled = !isMoving
-            ) {
-                Text(language.choose("Anuluj", "Cancel"))
-            }
-        }
-    )
-}
-
-@Composable
 private fun DialogOptionButton(
     text: String,
     supportingText: String? = null,
@@ -785,31 +660,60 @@ private fun buildTableStatusOptions(statuses: List<TableStatusEntity>, language:
     }
 }
 
-private fun getTableStatusName(
-    table: RestaurantTableEntity,
-    statuses: List<TableStatusEntity>,
-    language: AppLanguage
-): String {
-    val status = statuses.find { it.id == table.statusId }
-    return status?.localizedName(language) ?: when (status?.token?.uppercase()) {
-        "AVAILABLE" -> language.choose("Wolny", "Available")
-        "OCCUPIED" -> language.choose("Zajety", "Occupied")
-        "RESERVED" -> language.choose("Zarezerwowany", "Reserved")
-        "CLEANING" -> language.choose("Do sprzatniecia", "Cleaning")
-        "OUT_OF_SERVICE" -> language.choose("Wylaczony", "Out of service")
-        else -> language.choose("Wolny", "Available")
-    }
-}
+private fun statusTransitionError(
+    currentToken: String,
+    targetToken: String,
+    language: AppLanguage,
+    hasReservation: Boolean
+): String? {
+    val current = currentToken.uppercase()
+    val target = targetToken.uppercase()
 
-private fun getTableStatusToken(
-    table: RestaurantTableEntity,
-    statuses: List<TableStatusEntity>
-): String {
-    return statuses
-        .find { it.id == table.statusId }
-        ?.token
-        ?.uppercase()
-        ?: "AVAILABLE"
+    if (current == target) return null
+
+    return when (current) {
+        "OCCUPIED" -> when (target) {
+            "CLEANING" -> null
+            "AVAILABLE" -> language.choose(
+                "Najpierw ustaw stolik jako do sprzatniecia, potem jako wolny.",
+                "Set the table to cleaning first, then available."
+            )
+            else -> language.choose(
+                "Zajety stolik mozna teraz przelaczyc tylko na do sprzatniecia.",
+                "An occupied table can only be changed to cleaning now."
+            )
+        }
+        "CLEANING" -> if (target == "AVAILABLE") {
+            null
+        } else {
+            language.choose(
+                "Stolik do sprzatniecia mozna przelaczyc tylko na wolny.",
+                "A cleaning table can only be changed to available."
+            )
+        }
+        "OUT_OF_SERVICE" -> if (target == "AVAILABLE") {
+            null
+        } else {
+            language.choose(
+                "Wylaczony stolik mozna przelaczyc tylko na wolny.",
+                "An out-of-service table can only be changed to available."
+            )
+        }
+        "AVAILABLE", "RESERVED" -> if (target == "OCCUPIED" && !hasReservation) {
+            language.choose(
+                "Nie mozna zajac stolika bez aktualnej lub nadchodzacej rezerwacji.",
+                "You cannot occupy a table without a current or upcoming reservation."
+            )
+        } else if (target == "OUT_OF_SERVICE" || target == "OCCUPIED") {
+            null
+        } else {
+            language.choose(
+                "Ten status nie jest dostepny dla aktualnego stanu stolika.",
+                "This status is not available for the current table state."
+            )
+        }
+        else -> null
+    }
 }
 
 private fun normalizeStatusToken(status: String): String {

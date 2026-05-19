@@ -4,16 +4,14 @@ import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.room.withTransaction
 import com.example.quilacarne.data.local.entities.OrderEntity
 import com.example.quilacarne.data.local.entities.ReservationEntity
+import com.example.quilacarne.data.local.entities.RestaurantTableEntity
 import com.example.quilacarne.data.local.entities.TableStatusEntity
 import com.example.quilacarne.data.local.entities.UsersEntity
-import com.example.quilacarne.data.local.entities.RestaurantTableEntity
 import com.example.quilacarne.data.local.relations.OrderItemWithDish
 import com.example.quilacarne.data.local.TokenManager
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -25,6 +23,7 @@ import java.util.Locale
 import java.util.UUID
 import com.example.quilacarne.data.local.AppDatabase
 import com.example.quilacarne.data.repository.SyncRepository
+import com.example.quilacarne.data.repository.TableDisplayStatusLogic
 import com.example.quilacarne.utils.ReservationTimeUtils
 
 class TableDetailViewModel(application: Application) : AndroidViewModel(application) {
@@ -41,11 +40,11 @@ class TableDetailViewModel(application: Application) : AndroidViewModel(applicat
     private val _waiters = MutableStateFlow<List<UsersEntity>>(emptyList())
     val waiters: StateFlow<List<UsersEntity>> = _waiters
 
-    private val _tables = MutableStateFlow<List<RestaurantTableEntity>>(emptyList())
-    val tables: StateFlow<List<RestaurantTableEntity>> = _tables
-
     private val _tableStatusId = MutableStateFlow<UUID?>(null)
     val tableStatusId: StateFlow<UUID?> = _tableStatusId
+
+    private val _displayStatusToken = MutableStateFlow<String?>(null)
+    val displayStatusToken: StateFlow<String?> = _displayStatusToken
 
     private val _activeOrderId = MutableStateFlow<UUID?>(null)
     val activeOrderId: StateFlow<UUID?> = _activeOrderId
@@ -63,12 +62,11 @@ class TableDetailViewModel(application: Application) : AndroidViewModel(applicat
     private var statusesJob: Job? = null
     private var waitersJob: Job? = null
     private var tableJob: Job? = null
-    private var tablesJob: Job? = null
     private var ordersJob: Job? = null
     private var remoteSyncJob: Job? = null
 
     fun loadTableData(tableId: UUID) {
-        startRemoteRefresh()
+        refreshRemoteOnce()
 
         waitersJob?.cancel()
         waitersJob = viewModelScope.launch {
@@ -94,18 +92,11 @@ class TableDetailViewModel(application: Application) : AndroidViewModel(applicat
             }
         }
 
-        tablesJob?.cancel()
-        tablesJob = viewModelScope.launch {
-            db.restaurantTableDao().getAllTablesFlow().collect { tables ->
-                _tables.value = tables
-            }
-        }
-
         ordersJob?.cancel()
         ordersJob = viewModelScope.launch {
             _isLoading.value = true
             try {
-                combine(
+                val tableSnapshotFlow = combine(
                     db.restaurantTableDao().getTableById(tableId),
                     db.tableStatusDao().getAllStatuses(),
                     db.orderDao().getAllOrders(),
@@ -113,7 +104,14 @@ class TableDetailViewModel(application: Application) : AndroidViewModel(applicat
                     db.reservationDao().getReservationsForTableFlow(tableId)
                 ) { table, statuses, orders, users, reservations ->
                     TableDetailSnapshot(table, statuses, orders, users, reservations)
-                }.collectLatest { snapshot ->
+                }
+
+                combine(
+                    tableSnapshotFlow,
+                    syncRepository.getOperationalSyncRunningFlow()
+                ) { snapshot, isSyncing ->
+                    snapshot to isSyncing
+                }.collectLatest { (snapshot, isSyncing) ->
                     val table = snapshot.table
                     val statuses = snapshot.statuses
                     val orders = snapshot.orders
@@ -126,15 +124,22 @@ class TableDetailViewModel(application: Application) : AndroidViewModel(applicat
                         .firstOrNull { it.id == table?.statusId }
                         ?.token
                         ?.uppercase()
-                    val occupiedOrder = orders
-                        .find { it.tableId == tableId }
-                        ?.takeIf { tableStatusToken == "OCCUPIED" }
-                    val reservationOrder = orders
-                        .find { it.tableId == tableId }
-                        ?.takeIf { reservation != null }
-                    val orderForItems = occupiedOrder ?: reservationOrder
+                    val tableOrders = orders.filter { it.tableId == tableId }
+                    val activeOrder = tableOrders.firstOrNull { it.waiterId != null }
+                    val reservationOrder = tableOrders.firstOrNull()
+                    val displayStatusToken = TableDisplayStatusLogic.resolveDisplayStatusToken(
+                        physicalStatusToken = tableStatusToken,
+                        hasActiveOrder = activeOrder != null,
+                        hasReservation = reservation != null,
+                        previousStatusToken = _displayStatusToken.value,
+                        isSyncing = isSyncing
+                    )
+                    val occupiedOrder = activeOrder?.takeIf { displayStatusToken == "OCCUPIED" }
+                    val orderForItems = occupiedOrder
+                        ?: reservationOrder?.takeIf { displayStatusToken == "RESERVED" }
 
                     _tableStatusId.value = table?.statusId
+                    _displayStatusToken.value = displayStatusToken
                     _reservation.value = reservation
                     _activeOrderId.value = occupiedOrder?.id
                     _assignedWaiterName.value = occupiedOrder
@@ -155,7 +160,7 @@ class TableDetailViewModel(application: Application) : AndroidViewModel(applicat
                         itemsJob?.cancel()
                         _orderItems.value = emptyList()
                         _activeOrderId.value = null
-                        if (tableStatusToken != "OCCUPIED") {
+                        if (displayStatusToken != "OCCUPIED") {
                             _assignedWaiterName.value = null
                         }
                         _isLoading.value = false
@@ -204,63 +209,14 @@ class TableDetailViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    fun moveTableOrder(
-        currentTableId: UUID,
-        newTableId: UUID,
-        onMoved: (Boolean) -> Unit = {}
-    ) {
-        viewModelScope.launch {
-            val now = getCurrentTimestamp()
-            val availableStatusId = ensureStatus("AVAILABLE", "Wolny")
-            val occupiedStatusId = ensureStatus("OCCUPIED", "Zajęty")
-
-            val movedOrdersCount = db.withTransaction {
-                val statuses = db.tableStatusDao().getAllStatusesOnce()
-                val targetTable = db.restaurantTableDao().getTableByIdOnce(newTableId)
-                val targetStatusToken = getTableStatusToken(targetTable, statuses)
-                val currentOrder = db.orderDao().getActiveOrderForTableOnce(currentTableId)
-
-                if (targetStatusToken != "AVAILABLE" || currentOrder == null) {
-                    0
-                } else {
-                    val movedCount = db.orderDao().moveOrderToTable(
-                        orderId = currentOrder.id,
-                        newTableId = newTableId,
-                        updatedAt = now
-                    )
-
-                    if (movedCount > 0) {
-                        db.restaurantTableDao().updateStatus(
-                            currentTableId,
-                            availableStatusId,
-                            now
-                        )
-                        db.restaurantTableDao().updateStatus(
-                            newTableId,
-                            occupiedStatusId,
-                            now
-                        )
-                    }
-
-                    movedCount
-                }
-            }
-
-            onMoved(movedOrdersCount > 0)
-        }
-    }
-
-    private fun startRemoteRefresh() {
+    private fun refreshRemoteOnce() {
         if (remoteSyncJob?.isActive == true) return
 
         remoteSyncJob = viewModelScope.launch {
-            while (true) {
-                syncRepository.syncOperationalData()
-                    .onFailure { error ->
-                        Log.w("TABLE_REMOTE", "Okresowa synchronizacja nie powiodla sie: ${error.message}")
-                    }
-                delay(5_000L)
-            }
+            syncRepository.syncOperationalData("table-detail-load")
+                .onFailure { error ->
+                    Log.w("TABLE_REMOTE", "Synchronizacja szczegolow nie powiodla sie: ${error.message}")
+                }
         }
     }
 
@@ -295,36 +251,7 @@ class TableDetailViewModel(application: Application) : AndroidViewModel(applicat
         )
     }
 
-    private suspend fun ensureStatus(token: String, name: String): UUID {
-        val statusId = token.toStableUUID()
-        val now = getCurrentTimestamp()
-        db.tableStatusDao().insertAll(
-            listOf(
-                TableStatusEntity(
-                    id = statusId,
-                    token = token,
-                    namePl = name,
-                    nameEn = name,
-                    createdAt = now,
-                    updatedAt = now
-                )
-            )
-        )
-        return statusId
-    }
-
     private fun String.toStableUUID(): UUID = UUID.nameUUIDFromBytes(toByteArray())
-
-    private fun getTableStatusToken(
-        table: RestaurantTableEntity?,
-        statuses: List<TableStatusEntity>
-    ): String {
-        return statuses
-            .find { it.id == table?.statusId }
-            ?.token
-            ?.uppercase()
-            ?: "AVAILABLE"
-    }
 
     private fun getCurrentTimestamp(): String =
         SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.getDefault()).format(Date())
@@ -335,7 +262,6 @@ class TableDetailViewModel(application: Application) : AndroidViewModel(applicat
         statusesJob?.cancel()
         waitersJob?.cancel()
         tableJob?.cancel()
-        tablesJob?.cancel()
         ordersJob?.cancel()
         remoteSyncJob?.cancel()
     }

@@ -102,7 +102,8 @@ class OrderAddViewModel(application: Application) : AndroidViewModel(application
                     dishId = dish.id,
                     dish = dish,
                     quantity = 1,
-                    priceAtTimeOfOrder = dish.price
+                    priceAtTimeOfOrder = dish.price,
+                    note = null
                 )
             )
         }
@@ -182,6 +183,7 @@ class OrderAddViewModel(application: Application) : AndroidViewModel(application
                             productId = dishId,
                             quantity = pending.quantity,
                             priceAtTimeOfOrder = pending.priceAtTimeOfOrder,
+                            note = pending.note,
                             createdAt = now,
                             updatedAt = now
                         )
@@ -265,7 +267,8 @@ class OrderAddViewModel(application: Application) : AndroidViewModel(application
                 dishId = wrapper.item.productId,
                 dish = wrapper.dish,
                 quantity = wrapper.item.quantity,
-                priceAtTimeOfOrder = wrapper.item.priceAtTimeOfOrder
+                priceAtTimeOfOrder = wrapper.item.priceAtTimeOfOrder,
+                note = wrapper.item.note
             )
         }
     }
@@ -282,5 +285,6 @@ data class PendingOrderItem(
     val dishId: UUID?,
     val dish: DishEntity?,
     val quantity: Int,
-    val priceAtTimeOfOrder: Int
+    val priceAtTimeOfOrder: Int,
+    val note: String? = null
 )

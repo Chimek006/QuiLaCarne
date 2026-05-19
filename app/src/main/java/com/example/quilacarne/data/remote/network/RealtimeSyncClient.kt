@@ -28,11 +28,20 @@ class RealtimeSyncClient(
         .build()
 
     private val syncInProgress = AtomicBoolean(false)
+    private val connected = AtomicBoolean(false)
     private var webSocket: WebSocket? = null
     private var reconnectJob: Job? = null
     private var activeToken: String? = null
     private var manuallyStopped = true
     private var disabledLogShown = false
+
+    fun isConfigured(): Boolean {
+        return webSocketUrl.isNotBlank()
+    }
+
+    fun isConnected(): Boolean {
+        return connected.get()
+    }
 
     fun start() {
         if (webSocketUrl.isBlank()) {
@@ -54,6 +63,7 @@ class RealtimeSyncClient(
         reconnectJob?.cancel()
         reconnectJob = null
         activeToken = null
+        connected.set(false)
         webSocket?.close(NORMAL_CLOSE_CODE, "Realtime sync stopped")
         webSocket = null
     }
@@ -82,6 +92,7 @@ class RealtimeSyncClient(
     private fun createListener(): WebSocketListener {
         return object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                connected.set(true)
                 Log.d(TAG, "WebSocket connected code=${response.code}")
                 triggerOperationalSync("connected")
             }
@@ -103,12 +114,14 @@ class RealtimeSyncClient(
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 Log.d(TAG, "WebSocket closed code=$code reason=$reason")
+                connected.set(false)
                 this@RealtimeSyncClient.webSocket = null
                 scheduleReconnect()
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 Log.w(TAG, "WebSocket failure code=${response?.code} message=${t.message}")
+                connected.set(false)
                 this@RealtimeSyncClient.webSocket = null
                 scheduleReconnect()
             }
@@ -127,7 +140,8 @@ class RealtimeSyncClient(
     private fun triggerOperationalSync(reason: String) {
         if (syncInProgress.compareAndSet(false, true)) {
             scope.launch {
-                syncRepository.syncOperationalData()
+                Log.d(TAG, "Realtime sync trigger reason=$reason")
+                syncRepository.syncOperationalData("websocket-$reason")
                     .onSuccess {
                         Log.d(TAG, "Realtime operational sync finished reason=$reason")
                     }

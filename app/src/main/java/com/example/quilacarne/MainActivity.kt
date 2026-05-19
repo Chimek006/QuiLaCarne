@@ -34,6 +34,8 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         lateinit var networkMonitor: NetworkMonitor
+        private const val CONNECTION_CHECK_INTERVAL_MS = 15_000L
+        private const val FALLBACK_POLL_INTERVAL_MS = 30_000L
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -295,6 +297,7 @@ class MainActivity : ComponentActivity() {
 
         lifecycleScope.launch {
             var wasServerAvailable = false
+            var lastFallbackPollAt = 0L
 
             while (true) {
                 networkMonitor.refresh()
@@ -323,13 +326,34 @@ class MainActivity : ComponentActivity() {
                     runCatching {
                         reauthenticateOfflineSession(db, tokenManager)
                         syncRepository.syncAllLocalData(clearBeforeSync = true).getOrThrow()
+                        lastFallbackPollAt = System.currentTimeMillis()
                     }.onFailure { error ->
                         Log.e("CONNECTION_SYNC", "Background sync failed: ${error.message}")
                     }
                 }
 
+                val nowMillis = System.currentTimeMillis()
+                val shouldFallbackPoll = serverAvailable &&
+                    hasActiveSession &&
+                    tokenManager.isBootstrapped() &&
+                    (!realtimeClient.isConfigured() || !realtimeClient.isConnected()) &&
+                    nowMillis - lastFallbackPollAt >= FALLBACK_POLL_INTERVAL_MS
+
+                if (shouldFallbackPoll) {
+                    lastFallbackPollAt = nowMillis
+                    Log.d(
+                        "CENTRAL_SYNC",
+                        "Fallback polling sync started websocketConfigured=${realtimeClient.isConfigured()} " +
+                            "websocketConnected=${realtimeClient.isConnected()}"
+                    )
+                    syncRepository.syncOperationalData("central-fallback-polling")
+                        .onFailure { error ->
+                            Log.w("CENTRAL_SYNC", "Fallback polling sync failed: ${error.message}")
+                        }
+                }
+
                 wasServerAvailable = serverAvailable
-                delay(15_000L)
+                delay(CONNECTION_CHECK_INTERVAL_MS)
             }
         }
     }

@@ -3,18 +3,19 @@ package com.example.quilacarne.ui.viewmodels
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.quilacarne.data.local.entities.OrderEntity
 import com.example.quilacarne.data.local.entities.ReservationEntity
 import com.example.quilacarne.data.local.entities.RestaurantTableEntity
 import com.example.quilacarne.data.local.entities.TableStatusEntity
+import com.example.quilacarne.data.local.entities.UsersEntity
 import com.example.quilacarne.data.repository.SyncRepository
+import com.example.quilacarne.data.repository.TableDisplayStatusLogic
+import com.example.quilacarne.data.repository.TableStatusSyncLogic
 import com.example.quilacarne.utils.ReservationTimeUtils
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -23,11 +24,7 @@ class TablesViewModel(private val repository: SyncRepository) : ViewModel() {
 
     private val _isSyncComplete = MutableStateFlow(true)
     val isSyncComplete: StateFlow<Boolean> = _isSyncComplete
-    private var liveSyncJob: Job? = null
-
-    init {
-        startLiveSync()
-    }
+    private var lastTableUiStatesById: Map<UUID, TableUiState> = emptyMap()
 
     val tables: StateFlow<List<RestaurantTableEntity>> = repository.getTablesFlow()
         .stateIn(
@@ -43,93 +40,150 @@ class TablesViewModel(private val repository: SyncRepository) : ViewModel() {
             initialValue = emptyList()
         )
 
-    val reservationsByTable: StateFlow<Map<UUID, ReservationEntity>> = repository.getReservationsFlow()
-        .map { reservations ->
-            val nowMillis = System.currentTimeMillis()
-            reservations
-                .groupBy { it.tableId }
-                .mapNotNull { (tableId, tableReservations) ->
-                    ReservationTimeUtils.selectCurrentOrUpcoming(tableReservations, nowMillis)
-                        ?.let { reservation -> tableId to reservation }
-                }
-                .toMap()
-        }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyMap()
-        )
-
-    val waiterNamesByTable: StateFlow<Map<UUID, String>> = combine(
+    private val tableUiInput: StateFlow<TableUiInput> = combine(
         tables,
         statuses,
+        repository.getReservationsFlow(),
         repository.getOrdersFlow(),
         repository.getUsersFlow()
-    ) { tables, statuses, orders, users ->
-        val statusesById = statuses.associateBy { it.id }
-
-        tables
-            .mapNotNull { table ->
-                val tableStatusToken = table.statusId
-                    ?.let { statusesById[it]?.token }
-                    ?.uppercase()
-
-                if (tableStatusToken != "OCCUPIED") {
-                    return@mapNotNull null
-                }
-
-                val waiterName = orders
-                    .firstOrNull { it.tableId == table.id }
-                    ?.waiterId
-                    ?.let { waiterId ->
-                        users.firstOrNull { it.id == waiterId }?.username
-                    }
-
-                waiterName?.let { table.id to it }
-            }
-            .toMap()
+    ) { tables, statuses, reservations, orders, users ->
+        TableUiInput(
+            tables = tables,
+            statuses = statuses,
+            reservations = reservations,
+            orders = orders,
+            users = users
+        )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
-        initialValue = emptyMap()
+        initialValue = TableUiInput()
+    )
+
+    val tableUiStates: StateFlow<List<TableUiState>> = combine(
+        tableUiInput,
+        repository.getOperationalSyncRunningFlow()
+    ) { input, isSyncing ->
+        val states = buildTableUiStates(input, isSyncing)
+        lastTableUiStatesById = states.associateBy { it.id }
+        states
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
     )
 
     fun refreshTables() {
         viewModelScope.launch {
+            _isSyncComplete.value = false
+
             try {
-                val result = repository.syncOperationalData()
+                val result = repository.syncOperationalData("tables-manual-refresh")
 
                 result.onSuccess {
-                    Log.d("TABLES_SYNC", "Synchronizacja stolików zakończona")
+                    Log.d("TABLES_SYNC", "Synchronizacja stolikow zakonczona")
                 }
 
                 result.onFailure { error ->
-                    Log.e("TABLES_SYNC", "Błąd sync: ${error.message}")
+                    Log.e("TABLES_SYNC", "Blad sync: ${error.message}")
                 }
             } catch (e: Exception) {
-                Log.e("TABLES_SYNC", "Wyjątek: ${e.message}")
+                Log.e("TABLES_SYNC", "Wyjatek: ${e.message}")
             } finally {
                 _isSyncComplete.value = true
             }
         }
     }
 
-    private fun startLiveSync() {
-        if (liveSyncJob?.isActive == true) return
+    private fun buildTableUiStates(
+        input: TableUiInput,
+        isSyncing: Boolean
+    ): List<TableUiState> {
+        val statusesById = input.statuses.associateBy { it.id }
+        val usersById = input.users.associateBy { it.id }
+        val reservationsByTable = currentOrUpcomingReservationsByTable(input.reservations)
+        val ordersByTable = input.orders
+            .mapNotNull { order -> order.tableId?.let { tableId -> tableId to order } }
+            .groupBy({ it.first }, { it.second })
 
-        liveSyncJob = viewModelScope.launch {
-            while (true) {
-                repository.syncOperationalData()
-                    .onFailure { error ->
-                        Log.w("TABLES_SYNC", "Okresowa synchronizacja nie powiodla sie: ${error.message}")
-                    }
-                delay(5_000L)
+        return input.tables
+            .sortedBy { it.tableNumber }
+            .map { table ->
+                val previousState = lastTableUiStatesById[table.id]
+                val physicalStatusToken = table.statusId
+                    ?.let { statusesById[it]?.token }
+                    ?.uppercase()
+                val activeOrder = ordersByTable[table.id]
+                    .orEmpty()
+                    .firstOrNull { it.waiterId != null }
+                val reservation = reservationsByTable[table.id]
+                val displayStatusToken = TableDisplayStatusLogic.resolveDisplayStatusToken(
+                    physicalStatusToken = physicalStatusToken,
+                    hasActiveOrder = activeOrder != null,
+                    hasReservation = reservation != null,
+                    previousStatusToken = previousState?.statusToken,
+                    isSyncing = isSyncing
+                )
+
+                TableUiState(
+                    id = table.id,
+                    tableNumber = table.tableNumber,
+                    statusToken = displayStatusToken,
+                    statusNamePl = statusNamePl(displayStatusToken, statusesById.values),
+                    statusNameEn = statusNameEn(displayStatusToken, statusesById.values),
+                    waiterName = activeOrder
+                        ?.takeIf { displayStatusToken == "OCCUPIED" }
+                        ?.waiterId
+                        ?.let { usersById[it]?.username },
+                    reservationTime = reservation
+                        ?.takeIf { displayStatusToken == "RESERVED" }
+                        ?.let { ReservationTimeUtils.formatTimeRange(it.startTime, it.endTime) }
+                )
             }
-        }
     }
 
-    override fun onCleared() {
-        super.onCleared()
-        liveSyncJob?.cancel()
+    private fun currentOrUpcomingReservationsByTable(
+        reservations: List<ReservationEntity>
+    ): Map<UUID, ReservationEntity> {
+        val nowMillis = System.currentTimeMillis()
+        return reservations
+            .groupBy { it.tableId }
+            .mapNotNull { (tableId, tableReservations) ->
+                ReservationTimeUtils.selectCurrentOrUpcoming(tableReservations, nowMillis)
+                    ?.let { reservation -> tableId to reservation }
+            }
+            .toMap()
+    }
+
+    private fun statusNamePl(token: String, statuses: Collection<TableStatusEntity>): String {
+        return statuses
+            .firstOrNull { it.token.equals(token, ignoreCase = true) }
+            ?.namePl
+            ?: TableStatusSyncLogic.tableStatusNamePl(token)
+    }
+
+    private fun statusNameEn(token: String, statuses: Collection<TableStatusEntity>): String {
+        return statuses
+            .firstOrNull { it.token.equals(token, ignoreCase = true) }
+            ?.nameEn
+            ?: TableStatusSyncLogic.tableStatusNameEn(token)
     }
 }
+
+data class TableUiState(
+    val id: UUID,
+    val tableNumber: Int,
+    val statusToken: String,
+    val statusNamePl: String,
+    val statusNameEn: String,
+    val waiterName: String?,
+    val reservationTime: String?
+)
+
+private data class TableUiInput(
+    val tables: List<RestaurantTableEntity> = emptyList(),
+    val statuses: List<TableStatusEntity> = emptyList(),
+    val reservations: List<ReservationEntity> = emptyList(),
+    val orders: List<OrderEntity> = emptyList(),
+    val users: List<UsersEntity> = emptyList()
+)

@@ -23,30 +23,20 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
-import com.example.quilacarne.data.local.entities.RestaurantTableEntity
-import com.example.quilacarne.data.local.entities.TableStatusEntity
 import com.example.quilacarne.ui.components.QuiLaCarneHeader
 import com.example.quilacarne.ui.i18n.AppLanguage
-import com.example.quilacarne.ui.i18n.localizedName
 import com.example.quilacarne.ui.i18n.rememberAppLanguage
 import com.example.quilacarne.ui.theme.*
+import com.example.quilacarne.ui.viewmodels.TableUiState
 import com.example.quilacarne.ui.viewmodels.TablesViewModel
-import com.example.quilacarne.utils.ReservationTimeUtils
-import java.util.UUID
 
 @Composable
 fun TablesScreen(navController: NavController, viewModel: TablesViewModel) {
-    val tables by viewModel.tables.collectAsState()
-    val statuses by viewModel.statuses.collectAsState()
-    val waiterNamesByTable by viewModel.waiterNamesByTable.collectAsState()
-    val reservationsByTable by viewModel.reservationsByTable.collectAsState()
+    val tables by viewModel.tableUiStates.collectAsState()
     val isSyncComplete by viewModel.isSyncComplete.collectAsState()
     val language = rememberAppLanguage()
-    val sortedTables = remember(tables) {
-        tables.sortedBy { it.tableNumber }
-    }
 
-    val isLoading = sortedTables.isEmpty() && !isSyncComplete
+    val isLoading = tables.isEmpty() && !isSyncComplete
 
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFFFDFDFD))) {
         QuiLaCarneHeader(navController = navController, showBack = true)
@@ -68,7 +58,7 @@ fun TablesScreen(navController: NavController, viewModel: TablesViewModel) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = green)
                 }
-            } else if (sortedTables.isEmpty()) {
+            } else if (tables.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
@@ -82,26 +72,15 @@ fun TablesScreen(navController: NavController, viewModel: TablesViewModel) {
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(sortedTables, key = { it.id }) { table ->
-                        val statusInfo = getStatusInfo(table.statusId, statuses)
-                        val physicalStatusToken = statusInfo?.token?.uppercase() ?: "AVAILABLE"
-                        val reservation = reservationsByTable[table.id]
-                        val statusToken = getDisplayStatusToken(physicalStatusToken, reservation != null)
-                        val statusText = if (statusToken == "RESERVED") {
-                            language.choose("Zarezerwowany", "Reserved")
-                        } else {
-                            statusInfo?.localizedName(language) ?: getStatusText(statusToken, language)
-                        }
-                        val reservationTime = reservation
-                            ?.takeIf { statusToken == "RESERVED" }
-                            ?.let { ReservationTimeUtils.formatTimeRange(it.startTime, it.endTime) }
-                        val (pillColor, textColor) = getStatusColors(statusToken)
+                    items(tables, key = { it.id }) { table ->
+                        val statusText = table.localizedStatusName(language)
+                        val (pillColor, textColor) = getStatusColors(table.statusToken)
 
                         TableCard(
                             name = language.choose("Stolik ${table.tableNumber}", "Table ${table.tableNumber}"),
                             status = statusText,
-                            waiterName = waiterNamesByTable[table.id],
-                            reservationTime = reservationTime,
+                            waiterName = table.waiterName,
+                            reservationTime = table.reservationTime,
                             language = language,
                             pillColor = pillColor,
                             pillTextColor = textColor,
@@ -109,7 +88,7 @@ fun TablesScreen(navController: NavController, viewModel: TablesViewModel) {
                             bottomColor = green,
                             onClick = { name ->
                                 val encodedName = Uri.encode(name)
-                                val encodedStatus = Uri.encode(statusToken)
+                                val encodedStatus = Uri.encode(table.statusToken)
                                 navController.navigate("table/${table.id}/$encodedName/$encodedStatus")
                             }
                         )
@@ -120,28 +99,8 @@ fun TablesScreen(navController: NavController, viewModel: TablesViewModel) {
     }
 }
 
-private fun getDisplayStatusToken(physicalStatusToken: String, hasReservation: Boolean): String {
-    return when (physicalStatusToken.uppercase()) {
-        "OUT_OF_SERVICE" -> "OUT_OF_SERVICE"
-        "CLEANING" -> "CLEANING"
-        "OCCUPIED" -> "OCCUPIED"
-        else -> if (hasReservation) "RESERVED" else "AVAILABLE"
-    }
-}
-
-private fun getStatusInfo(statusId: UUID?, statuses: List<TableStatusEntity>): TableStatusEntity? {
-    return statuses.find { it.id == statusId }
-}
-
-private fun getStatusText(token: String, language: AppLanguage): String {
-    return when (token.uppercase()) {
-        "AVAILABLE" -> language.choose("Wolny", "Available")
-        "OCCUPIED" -> language.choose("Zajety", "Occupied")
-        "RESERVED" -> language.choose("Zarezerwowany", "Reserved")
-        "CLEANING" -> language.choose("Do sprzatniecia", "Cleaning")
-        "OUT_OF_SERVICE" -> language.choose("Wylaczony", "Out of service")
-        else -> language.choose("Wolny", "Available")
-    }
+private fun TableUiState.localizedStatusName(language: AppLanguage): String {
+    return language.choose(statusNamePl, statusNameEn)
 }
 
 private fun getStatusColors(status: String): Pair<Color, Color> {

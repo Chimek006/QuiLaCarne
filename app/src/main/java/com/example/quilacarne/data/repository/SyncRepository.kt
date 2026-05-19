@@ -38,6 +38,8 @@ import com.example.quilacarne.data.remote.network.TokenAuthenticator
 import com.example.quilacarne.utils.ReservationTimeUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -58,6 +60,8 @@ class SyncRepository(
 ) {
     companion object {
         private val operationalSyncMutex = Mutex()
+        private val _isOperationalSyncRunning = MutableStateFlow(false)
+        val isOperationalSyncRunning: StateFlow<Boolean> = _isOperationalSyncRunning
     }
 
     private val dishService = RetrofitClient.dishService
@@ -103,6 +107,10 @@ class SyncRepository(
         return database.userDao().getAllUsersFlow()
     }
 
+    fun getOperationalSyncRunningFlow(): StateFlow<Boolean> {
+        return isOperationalSyncRunning
+    }
+
     suspend fun syncAllLocalData(clearBeforeSync: Boolean = false): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val preservedPasswords = database.userDao()
@@ -122,13 +130,31 @@ class SyncRepository(
         }
     }
 
-    suspend fun syncOperationalData(): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun syncOperationalData(reason: String = "unspecified"): Result<Unit> = withContext(Dispatchers.IO) {
+        if (operationalSyncMutex.isLocked) {
+            Log.d("SYNC_FLOW", "Waiting for operational sync lock reason=$reason")
+        }
+
         operationalSyncMutex.withLock {
-            runCatching {
-                syncTables().getOrThrow()
-                syncUsers()
-                syncReservations()
-                syncOrdersAndItems()
+            _isOperationalSyncRunning.value = true
+            try {
+                Log.d("SYNC_FLOW", "Operational sync started reason=$reason")
+                runCatching {
+                    syncTables().getOrThrow()
+                    syncUsers()
+                    syncReservations()
+                    syncOrdersAndItems()
+                }.also { result ->
+                    result
+                        .onSuccess {
+                            Log.d("SYNC_FLOW", "Operational sync finished reason=$reason")
+                        }
+                        .onFailure { error ->
+                            Log.w("SYNC_FLOW", "Operational sync failed reason=$reason message=${error.message}")
+                        }
+                }
+            } finally {
+                _isOperationalSyncRunning.value = false
             }
         }
     }
@@ -193,11 +219,19 @@ class SyncRepository(
                     val tableId = dto.token.toStableUUID()
                     val existingStatusToken = existingStatusTokensByTableId[tableId]
                     val remoteStatusToken = dto.currentStatusToken()
-                    val statusToken = TableStatusSyncLogic.resolveSyncedTableStatusToken(
+                    val statusDecision = TableStatusSyncLogic.resolveSyncedTableStatusDecision(
                         remoteStatusToken = remoteStatusToken,
                         existingStatusToken = existingStatusToken,
                         remoteUpdatedAt = dto.updatedAt,
                         existingUpdatedAt = existingTablesById[tableId]?.updatedAt
+                    )
+                    val statusToken = statusDecision.statusToken
+
+                    Log.d(
+                        "TABLE_STATUS_SYNC",
+                        "tableId=$tableId remote=$remoteStatusToken local=$existingStatusToken " +
+                            "final=$statusToken reason=${statusDecision.reason} " +
+                            "remoteUpdatedAt=${dto.updatedAt} localUpdatedAt=${existingTablesById[tableId]?.updatedAt}"
                     )
 
                     if (!statusToken.isNullOrBlank()) {
@@ -702,17 +736,45 @@ class SyncRepository(
                 "Assigning waiter: tableId=$tableId, reservationToken=${reservationSelection.token}, reservationType=${reservationSelection.type}"
             )
 
-            orderService.assignWaiterToReservation(reservationSelection.token)
-                .requireApiSuccess("Nie udalo sie przypisac kelnera w API")
+            runCatching {
+                orderService.assignWaiterToReservation(reservationSelection.token)
+                    .requireApiSuccess("Nie udalo sie przypisac kelnera w API")
+            }.onFailure { error ->
+                if (error.message?.contains("Reservation not found", ignoreCase = true) == true) {
+                    throw IllegalStateException(
+                        "Nie można zająć rezerwacji bez utworzonego zamówienia. " +
+                            "Rezerwacja prawdopodobnie nie ma pozycji zamówienia."
+                    )
+                }
+                throw error
+            }
 
             syncOperationalData().getOrThrow()
 
-            val orderId = database.orderDao().getActiveOrderForTableOnce(tableId)?.id
+            val orderId = findOrderIdForReservation(tableId, reservationSelection.token)
                 ?: throw IllegalStateException("API przypisalo kelnera, ale synchronizacja nie zwrocila aktywnego zamowienia.")
 
-            applyLocalTableStatus(tableId, "OCCUPIED")
             orderId
         }
+    }
+
+    private suspend fun findOrderIdForReservation(
+        tableId: UUID,
+        reservationToken: String
+    ): UUID? {
+        val tableOrders = database.orderDao()
+            .getAllOrdersOnce()
+            .filter { it.tableId == tableId }
+
+        val reservationOrderId = tableOrders
+            .firstOrNull { order -> tokenStore?.getOrderReservationToken(order.id) == reservationToken }
+            ?.id
+
+        if (tokenStore != null) return reservationOrderId
+
+        return reservationOrderId
+            ?: tableOrders.firstOrNull { it.waiterId != null }?.id
+            ?: database.orderDao().getActiveOrderForTableOnce(tableId)?.id
     }
 
     suspend fun saveReservationItemDeltas(
@@ -956,6 +1018,7 @@ class SyncRepository(
             productId = productToken.toStableUUID(),
             quantity = quantity,
             priceAtTimeOfOrder = priceAtTimeOfOrder,
+            note = note,
             createdAt = createdAt,
             updatedAt = updatedAt
         )
