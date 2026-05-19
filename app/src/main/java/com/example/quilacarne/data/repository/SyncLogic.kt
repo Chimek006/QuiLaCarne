@@ -124,13 +124,8 @@ internal object TableDisplayStatusLogic {
         "OUT_OF_SERVICE",
         "CLEANING"
     )
-    private val nonAvailableDisplayStatuses = setOf(
-        "OUT_OF_SERVICE",
-        "CLEANING",
-        "OCCUPIED",
-        "RESERVED"
-    )
 
+    @Suppress("UNUSED_PARAMETER")
     fun resolveDisplayStatusToken(
         physicalStatusToken: String?,
         hasActiveOrder: Boolean,
@@ -139,25 +134,19 @@ internal object TableDisplayStatusLogic {
         isSyncing: Boolean
     ): String {
         val physicalToken = normalizeStatusToken(physicalStatusToken)
-        val previousToken = normalizeStatusToken(previousStatusToken)
-        val resolvedToken: String = when {
+        return when {
             physicalToken != null && physicalToken in physicalStatusPriority -> physicalToken
+            physicalToken == "AVAILABLE" -> {
+                if (hasReservation) {
+                    "RESERVED"
+                } else {
+                    "AVAILABLE"
+                }
+            }
             hasActiveOrder -> "OCCUPIED"
             hasReservation -> "RESERVED"
-            physicalToken == "AVAILABLE" -> physicalToken
             physicalToken != null -> "AVAILABLE"
-            previousToken != null -> previousToken
             else -> "AVAILABLE"
-        }
-
-        return if (
-            isSyncing &&
-            resolvedToken == "AVAILABLE" &&
-            previousToken in nonAvailableDisplayStatuses
-        ) {
-            previousToken ?: resolvedToken
-        } else {
-            resolvedToken
         }
     }
 

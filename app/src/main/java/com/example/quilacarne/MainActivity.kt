@@ -325,7 +325,7 @@ class MainActivity : ComponentActivity() {
                 if (shouldSync) {
                     runCatching {
                         reauthenticateOfflineSession(db, tokenManager)
-                        syncRepository.syncAllLocalData(clearBeforeSync = true).getOrThrow()
+                        syncRepository.syncAllLocalData(clearBeforeSync = false).getOrThrow()
                         lastFallbackPollAt = System.currentTimeMillis()
                     }.onFailure { error ->
                         Log.e("CONNECTION_SYNC", "Background sync failed: ${error.message}")
@@ -383,6 +383,7 @@ class MainActivity : ComponentActivity() {
 
         val username = tokenManager.getCurrentUsername() ?: return
         val user = db.userDao().getUserByUsername(username) ?: return
+        if (user.password.isBlank()) return
 
         val response = RetrofitClient.authService.login(
             LoginRequest(

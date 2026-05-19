@@ -19,6 +19,7 @@ import com.example.quilacarne.data.local.entities.ReservationEntity
 import com.example.quilacarne.data.local.entities.RestaurantTableEntity
 import com.example.quilacarne.data.local.entities.TableStatusEntity
 import com.example.quilacarne.data.local.entities.UsersEntity
+import com.example.quilacarne.data.local.entities.isActiveForTable
 import com.example.quilacarne.data.remote.dto.CategoryDto
 import com.example.quilacarne.data.remote.dto.DishSyncDto
 import com.example.quilacarne.data.remote.dto.IngredientSyncDto
@@ -113,18 +114,26 @@ class SyncRepository(
 
     suspend fun syncAllLocalData(clearBeforeSync: Boolean = false): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
-            val preservedPasswords = database.userDao()
+            val preservedOfflineUsers = database.userDao()
                 .getAllUsersOnce()
-                .associate { it.username to it.password }
+                .filter { it.password.isNotBlank() }
+            val preservedPasswords = preservedOfflineUsers.toPreservedPasswordMap()
+            val currentUsername = appContext
+                ?.let { TokenManager(it).getCurrentUsername() }
+                ?.trim()
+            val currentOfflineUser = currentUsername
+                ?.let { username -> preservedOfflineUsers.findByUsername(username) }
 
             if (clearBeforeSync) {
                 ensureServerReachable()
                 database.clearAllTables()
+                restoreOfflineLoginUsers(preservedOfflineUsers)
             }
 
             syncMenu().getOrThrow()
             syncTables().getOrThrow()
             syncUsers(preservedPasswords)
+            restoreOfflineLoginUsers(listOfNotNull(currentOfflineUser))
             syncReservations()
             syncOrdersAndItems()
         }
@@ -361,6 +370,7 @@ class SyncRepository(
             ?: throw Exception("Brak danych manifestu")
 
         val totalOrderPages = bootstrap.modules["orders"]?.totalPages ?: 0
+        val syncedOrders = mutableListOf<OrderEntity>()
 
         if (totalOrderPages > 0) {
             for (page in 1..totalOrderPages) {
@@ -375,19 +385,27 @@ class SyncRepository(
                     ?.items
                     .orEmpty()
 
-                val orders = orderDtos
-                    .map { dto ->
+                orderDtos
+                    .forEach { dto ->
                         val order = dto.toOrderEntity()
                         tokenStore?.saveToken("order", order.id, dto.token)
                         tokenStore?.saveOrderReservationToken(order.id, dto.reservationToken)
-                        order
+                        syncedOrders.add(order)
                     }
+            }
+        }
 
-                database.orderDao().insertOrders(orders)
+        database.withTransaction {
+            if (syncedOrders.isEmpty()) {
+                database.orderDao().clearOrders()
+            } else {
+                database.orderDao().insertOrders(syncedOrders)
+                database.orderDao().deleteOrdersExcept(syncedOrders.map { it.id })
             }
         }
 
         val totalItemPages = bootstrap.modules["orderItems"]?.totalPages ?: 0
+        val syncedItems = mutableListOf<OrderItemEntity>()
 
         if (totalItemPages > 0) {
             for (page in 1..totalItemPages) {
@@ -397,22 +415,35 @@ class SyncRepository(
                     throw Exception(response.body()?.message ?: "Błąd synchronizacji pozycji")
                 }
 
-                val items = response.body()
+                response.body()
                     ?.data
                     ?.items
                     .orEmpty()
-                    .map { dto ->
+                    .forEach { dto ->
                         val item = dto.toOrderItemEntity()
                         tokenStore?.saveToken("orderItem", item.id, dto.token)
-                        item
+                        syncedItems.add(item)
                     }
+            }
+        }
 
-                database.orderDao().insertOrderItems(items)
+        database.withTransaction {
+            if (syncedItems.isEmpty()) {
+                database.orderDao().clearOrderItems()
+            } else {
+                database.orderDao().insertOrderItems(syncedItems)
+                database.orderDao().deleteOrderItemsExcept(syncedItems.map { it.id })
             }
         }
     }
 
     private suspend fun syncUsers(preservedPasswords: Map<String, String> = emptyMap()) {
+        val effectivePreservedPasswords = preservedPasswords.ifEmpty {
+            database.userDao()
+                .getAllUsersOnce()
+                .filter { it.password.isNotBlank() }
+                .toPreservedPasswordMap()
+        }
         val bootstrapResponse = orderService.getBootstrap()
 
         if (!bootstrapResponse.isSuccessful || bootstrapResponse.body()?.isSuccess != true) {
@@ -442,7 +473,7 @@ class SyncRepository(
 
             val users = mutableListOf<UsersEntity>()
             for (dto in usersDto) {
-                val user = dto.toUsersEntity(preservedPasswords)
+                val user = dto.toUsersEntity(effectivePreservedPasswords)
                 tokenStore?.saveToken("user", user.id, dto.token)
                 users.add(user)
             }
@@ -767,14 +798,19 @@ class SyncRepository(
             .filter { it.tableId == tableId }
 
         val reservationOrderId = tableOrders
-            .firstOrNull { order -> tokenStore?.getOrderReservationToken(order.id) == reservationToken }
+            .firstOrNull { order ->
+                tokenStore?.getOrderReservationToken(order.id) == reservationToken &&
+                    order.isActiveForTable()
+            }
             ?.id
 
         if (tokenStore != null) return reservationOrderId
 
         return reservationOrderId
-            ?: tableOrders.firstOrNull { it.waiterId != null }?.id
-            ?: database.orderDao().getActiveOrderForTableOnce(tableId)?.id
+            ?: tableOrders.firstOrNull { it.waiterId != null && it.isActiveForTable() }?.id
+            ?: database.orderDao().getActiveOrderForTableOnce(tableId)
+                ?.takeIf { it.isActiveForTable() }
+                ?.id
     }
 
     suspend fun saveReservationItemDeltas(
@@ -1005,6 +1041,7 @@ class SyncRepository(
             tableId = tableToken.toStableUUID(),
             waiterId = waiterToken?.toStableUUID(),
             statusId = null,
+            statusTokens = statusTokens.joinToString(","),
             totalPrice = totalPrice,
             createdAt = createdAt,
             updatedAt = updatedAt
@@ -1026,15 +1063,50 @@ class SyncRepository(
 
     private fun UserSyncDto.toUsersEntity(preservedPasswords: Map<String, String>): UsersEntity {
         val role = roleTokens.orEmpty().joinToString(",").ifBlank { if (isStaff) "ROLE_WAITER" else "ROLE_CLIENT" }
+        val preservedPassword = preservedPasswords[username.normalizedLoginKey()]
+            ?: email?.normalizedLoginKey()?.let { preservedPasswords[it] }
 
         return UsersEntity(
             id = token.toStableUUID(),
             username = username,
-            password = preservedPasswords[username].orEmpty(),
+            password = preservedPassword.orEmpty(),
             isActive = isActive ?: true,
             role = role,
             createdAt = createdAt,
             updatedAt = updatedAt
         )
+    }
+
+    private fun List<UsersEntity>.toPreservedPasswordMap(): Map<String, String> {
+        return flatMap { user ->
+            listOf(user.username.normalizedLoginKey() to user.password)
+        }.toMap()
+    }
+
+    private fun List<UsersEntity>.findByUsername(username: String): UsersEntity? {
+        val normalizedUsername = username.normalizedLoginKey()
+        return firstOrNull { user -> user.username.normalizedLoginKey() == normalizedUsername }
+    }
+
+    private suspend fun restoreOfflineLoginUsers(users: List<UsersEntity>) {
+        val restorableUsers = users.filter { it.password.isNotBlank() }
+        if (restorableUsers.isEmpty()) return
+
+        restorableUsers.forEach { preservedUser ->
+            val existing = database.userDao().getUserByUsername(preservedUser.username)
+            if (existing == null || existing.password.isBlank()) {
+                database.userDao().insertUser(
+                    preservedUser.copy(
+                        isActive = existing?.isActive ?: preservedUser.isActive,
+                        role = existing?.role ?: preservedUser.role,
+                        updatedAt = getCurrentTimestamp()
+                    )
+                )
+            }
+        }
+    }
+
+    private fun String.normalizedLoginKey(): String {
+        return trim().lowercase(Locale.US)
     }
 }

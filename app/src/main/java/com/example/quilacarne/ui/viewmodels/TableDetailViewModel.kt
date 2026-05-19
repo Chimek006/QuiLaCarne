@@ -9,6 +9,7 @@ import com.example.quilacarne.data.local.entities.ReservationEntity
 import com.example.quilacarne.data.local.entities.RestaurantTableEntity
 import com.example.quilacarne.data.local.entities.TableStatusEntity
 import com.example.quilacarne.data.local.entities.UsersEntity
+import com.example.quilacarne.data.local.entities.isActiveForTable
 import com.example.quilacarne.data.local.relations.OrderItemWithDish
 import com.example.quilacarne.data.local.TokenManager
 import kotlinx.coroutines.Job
@@ -125,7 +126,7 @@ class TableDetailViewModel(application: Application) : AndroidViewModel(applicat
                         ?.token
                         ?.uppercase()
                     val tableOrders = orders.filter { it.tableId == tableId }
-                    val activeOrder = tableOrders.firstOrNull { it.waiterId != null }
+                    val activeOrder = tableOrders.firstOrNull { it.waiterId != null && it.isActiveForTable() }
                     val reservationOrder = tableOrders.firstOrNull()
                     val displayStatusToken = TableDisplayStatusLogic.resolveDisplayStatusToken(
                         physicalStatusToken = tableStatusToken,
@@ -237,21 +238,8 @@ class TableDetailViewModel(application: Application) : AndroidViewModel(applicat
             return
         }
 
-        val now = getCurrentTimestamp()
-        db.userDao().insertUser(
-            UsersEntity(
-                id = username.toStableUUID(),
-                username = username,
-                password = "",
-                isActive = true,
-                role = "waiter",
-                createdAt = now,
-                updatedAt = now
-            )
-        )
+        Log.w("TABLE_DETAIL", "Current user $username is missing locally; skipping empty-password fallback")
     }
-
-    private fun String.toStableUUID(): UUID = UUID.nameUUIDFromBytes(toByteArray())
 
     private fun getCurrentTimestamp(): String =
         SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.getDefault()).format(Date())

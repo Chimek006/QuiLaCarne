@@ -25,8 +25,20 @@ interface OrderDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertOrder(order: OrderEntity)
 
+    @Query("DELETE FROM orders WHERE id NOT IN (:orderIds)")
+    suspend fun deleteOrdersExcept(orderIds: List<UUID>)
+
+    @Query("DELETE FROM orders")
+    suspend fun clearOrders()
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertOrderItems(items: List<OrderItemEntity>)
+
+    @Query("DELETE FROM order_items WHERE id NOT IN (:itemIds)")
+    suspend fun deleteOrderItemsExcept(itemIds: List<UUID>)
+
+    @Query("DELETE FROM order_items")
+    suspend fun clearOrderItems()
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertOrderItem(item: OrderItemEntity)

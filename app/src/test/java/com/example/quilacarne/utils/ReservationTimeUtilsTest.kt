@@ -35,6 +35,14 @@ class ReservationTimeUtilsTest {
             1_704_105_000_123L,
             ReservationTimeUtils.parseApiTimestampMillis("2024-01-01T10:30:00.123Z")
         )
+        assertEquals(
+            1_704_097_800_000L,
+            ReservationTimeUtils.parseApiTimestampMillis("2024-01-01T10:30:00+02:00")
+        )
+        assertEquals(
+            1_704_105_000_000L,
+            ReservationTimeUtils.parseApiTimestampMillis("2024-01-01T10:30:00")
+        )
         assertNull(ReservationTimeUtils.parseApiTimestampMillis("not-a-date"))
     }
 
@@ -79,6 +87,7 @@ class ReservationTimeUtilsTest {
         val laterUpcoming = reservation(startMillis = 5_000L, endMillis = 6_000L)
         val nearestUpcoming = reservation(startMillis = 3_000L, endMillis = 4_000L)
         val current = reservation(startMillis = 1_000L, endMillis = 2_000L)
+        val expired = reservation(startMillis = 100L, endMillis = 900L)
 
         assertEquals(
             current.id,
@@ -96,7 +105,7 @@ class ReservationTimeUtilsTest {
         )
         assertNull(
             ReservationTimeUtils.selectCurrentOrUpcoming(
-                listOf(current),
+                listOf(current, expired),
                 nowMillis = 2_500L
             )
         )

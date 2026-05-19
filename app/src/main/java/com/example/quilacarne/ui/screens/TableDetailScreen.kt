@@ -224,6 +224,12 @@ fun TableDetailScreen(
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 onClick = saveClick@{
                     val status = stagedStatus ?: return@saveClick
+                    if (status.token == currentToken) {
+                        stagedStatus = null
+                        stagedWaiter = null
+                        statusSaveError = null
+                        return@saveClick
+                    }
                     statusTransitionError(
                         currentToken = currentToken,
                         targetToken = status.token,
@@ -309,6 +315,11 @@ fun TableDetailScreen(
                 onStatusSelected = statusSelected@ { status ->
                     showStatusDialog = false
                     statusSaveError = null
+                    if (status.token == currentToken) {
+                        stagedStatus = null
+                        stagedWaiter = null
+                        return@statusSelected
+                    }
                     statusTransitionError(
                         currentToken = currentToken,
                         targetToken = status.token,
@@ -699,7 +710,26 @@ private fun statusTransitionError(
                 "An out-of-service table can only be changed to available."
             )
         }
-        "AVAILABLE", "RESERVED" -> if (target == "OCCUPIED" && !hasReservation) {
+        "AVAILABLE" -> when (target) {
+            "OUT_OF_SERVICE" -> null
+            "OCCUPIED" -> if (hasReservation) {
+                null
+            } else {
+                language.choose(
+                    "Nie mozna zajac stolika bez aktualnej lub nadchodzacej rezerwacji.",
+                    "You cannot occupy a table without a current or upcoming reservation."
+                )
+            }
+            "CLEANING" -> language.choose(
+                "Wolny stolik nie wymaga sprzatania.",
+                "An available table does not require cleaning."
+            )
+            else -> language.choose(
+                "Ten status nie jest dostepny dla aktualnego stanu stolika.",
+                "This status is not available for the current table state."
+            )
+        }
+        "RESERVED" -> if (target == "OCCUPIED" && !hasReservation) {
             language.choose(
                 "Nie mozna zajac stolika bez aktualnej lub nadchodzacej rezerwacji.",
                 "You cannot occupy a table without a current or upcoming reservation."

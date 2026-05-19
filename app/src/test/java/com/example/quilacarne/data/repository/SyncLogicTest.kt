@@ -1,10 +1,13 @@
 package com.example.quilacarne.data.repository
 
+import com.example.quilacarne.data.local.entities.OrderEntity
+import com.example.quilacarne.data.local.entities.isActiveForTable
 import com.example.quilacarne.data.remote.dto.ApiResponse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Test
+import java.util.UUID
 
 class SyncLogicTest {
     @Test
@@ -168,13 +171,23 @@ class SyncLogicTest {
     }
 
     @Test
-    fun displayStatusUsesOrderAndReservationBeforeAvailable() {
+    fun displayStatusUsesRemoteAvailableBeforeActiveOrder() {
         assertEquals(
-            "OCCUPIED",
+            "RESERVED",
             TableDisplayStatusLogic.resolveDisplayStatusToken(
                 physicalStatusToken = "AVAILABLE",
                 hasActiveOrder = true,
                 hasReservation = true,
+                previousStatusToken = null,
+                isSyncing = false
+            )
+        )
+        assertEquals(
+            "AVAILABLE",
+            TableDisplayStatusLogic.resolveDisplayStatusToken(
+                physicalStatusToken = "AVAILABLE",
+                hasActiveOrder = true,
+                hasReservation = false,
                 previousStatusToken = null,
                 isSyncing = false
             )
@@ -192,9 +205,23 @@ class SyncLogicTest {
     }
 
     @Test
-    fun displayStatusKeepsPreviousBusyStatusDuringSyncWhenRawStateLooksAvailable() {
+    fun displayStatusUsesActiveOrderWhenRemotePhysicalStatusIsUnknown() {
         assertEquals(
-            "RESERVED",
+            "OCCUPIED",
+            TableDisplayStatusLogic.resolveDisplayStatusToken(
+                physicalStatusToken = null,
+                hasActiveOrder = true,
+                hasReservation = false,
+                previousStatusToken = null,
+                isSyncing = false
+            )
+        )
+    }
+
+    @Test
+    fun displayStatusDoesNotKeepPreviousBusyStatusDuringSyncWhenRawStateLooksAvailable() {
+        assertEquals(
+            "AVAILABLE",
             TableDisplayStatusLogic.resolveDisplayStatusToken(
                 physicalStatusToken = "AVAILABLE",
                 hasActiveOrder = false,
@@ -203,6 +230,16 @@ class SyncLogicTest {
                 isSyncing = true
             )
         )
+    }
+
+    @Test
+    fun orderIsActiveForTableOnlyForPendingOrInProgressStatuses() {
+        assertEquals(true, order(statusTokens = "IN_PROGRESS").isActiveForTable())
+        assertEquals(true, order(statusTokens = "pending").isActiveForTable())
+        assertEquals(false, order(statusTokens = "").isActiveForTable())
+        assertEquals(false, order(statusTokens = "COMPLETED").isActiveForTable())
+        assertEquals(false, order(statusTokens = "PENDING,CANCELLED").isActiveForTable())
+        assertEquals(false, order(statusTokens = "PAID").isActiveForTable())
     }
 
     @Test
@@ -271,5 +308,17 @@ class SyncLogicTest {
         }
 
         assertEquals("Bad state", exception.message)
+    }
+
+    private fun order(statusTokens: String): OrderEntity {
+        return OrderEntity(
+            id = UUID.randomUUID(),
+            tableId = UUID.randomUUID(),
+            waiterId = UUID.randomUUID(),
+            statusId = null,
+            statusTokens = statusTokens,
+            createdAt = "created",
+            updatedAt = "updated"
+        )
     }
 }

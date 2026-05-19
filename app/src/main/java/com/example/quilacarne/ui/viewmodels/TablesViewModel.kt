@@ -8,6 +8,7 @@ import com.example.quilacarne.data.local.entities.ReservationEntity
 import com.example.quilacarne.data.local.entities.RestaurantTableEntity
 import com.example.quilacarne.data.local.entities.TableStatusEntity
 import com.example.quilacarne.data.local.entities.UsersEntity
+import com.example.quilacarne.data.local.entities.isActiveForTable
 import com.example.quilacarne.data.repository.SyncRepository
 import com.example.quilacarne.data.repository.TableDisplayStatusLogic
 import com.example.quilacarne.data.repository.TableStatusSyncLogic
@@ -115,7 +116,7 @@ class TablesViewModel(private val repository: SyncRepository) : ViewModel() {
                     ?.uppercase()
                 val activeOrder = ordersByTable[table.id]
                     .orEmpty()
-                    .firstOrNull { it.waiterId != null }
+                    .firstOrNull { it.waiterId != null && it.isActiveForTable() }
                 val reservation = reservationsByTable[table.id]
                 val displayStatusToken = TableDisplayStatusLogic.resolveDisplayStatusToken(
                     physicalStatusToken = physicalStatusToken,

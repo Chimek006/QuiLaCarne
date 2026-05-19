@@ -5,6 +5,7 @@ import com.example.quilacarne.data.local.AppDatabase
 import com.example.quilacarne.data.local.entities.UsersEntity
 import com.example.quilacarne.data.remote.dto.LoginRequest
 import com.example.quilacarne.data.remote.network.RetrofitClient
+import java.util.Locale
 import java.util.UUID
 
 class AuthRepository(private val database: AppDatabase) {
@@ -19,16 +20,29 @@ class AuthRepository(private val database: AppDatabase) {
             if (response.isSuccessful && response.body()?.isSuccess == true) {
                 val data = response.body()?.data
                 if (data != null) {
-                    val userEntity = UsersEntity(
-                        id = UUID.randomUUID(),
-                        username = username.trim(),
-                        password = password,
-                        isActive = true,
-                        role = "waiter",
-                        createdAt = System.currentTimeMillis().toString(),
-                        updatedAt = System.currentTimeMillis().toString()
-                    )
-                    userDao.insertUser(userEntity)
+                    val loginUsername = username.trim()
+                    val apiUsername = data.username.trim().takeIf { it.isNotBlank() }
+                    val now = System.currentTimeMillis().toString()
+                    val localUsers = buildList {
+                        add(loginUsername)
+                        apiUsername?.let { add(it) }
+                    }
+                        .filter { it.isNotBlank() }
+                        .distinctBy { it.lowercase(Locale.US) }
+                        .map { localUsername ->
+                            val existing = userDao.getUserByUsername(localUsername)
+                            UsersEntity(
+                                id = existing?.id ?: UUID.randomUUID(),
+                                username = localUsername,
+                                password = password,
+                                isActive = existing?.isActive ?: true,
+                                role = existing?.role ?: "waiter",
+                                createdAt = existing?.createdAt ?: now,
+                                updatedAt = now
+                            )
+                        }
+
+                    userDao.insertUsers(localUsers)
                     Log.d("AUTH_REPO", "✓ Zalogowano i zapisano offline")
 
                     Result.success(

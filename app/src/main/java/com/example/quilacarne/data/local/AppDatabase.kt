@@ -29,7 +29,7 @@ import net.sqlcipher.database.SupportFactory
         IngredientAllergenEntity::class,
         ReservationEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

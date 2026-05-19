@@ -1,6 +1,10 @@
 package com.example.quilacarne.utils
 
 import com.example.quilacarne.data.local.entities.ReservationEntity
+import java.time.Instant
+import java.time.LocalDateTime
+import java.time.OffsetDateTime
+import java.time.ZoneId
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -32,7 +36,9 @@ object ReservationTimeUtils {
     }
 
     fun isUpcoming(reservation: ReservationEntity, nowMillis: Long = System.currentTimeMillis()): Boolean {
-        return reservation.isActive && reservation.startEpochMillis > nowMillis
+        return reservation.isActive &&
+            reservation.startEpochMillis > nowMillis &&
+            reservation.endEpochMillis > nowMillis
     }
 
     fun selectCurrentOrUpcoming(
@@ -63,6 +69,18 @@ object ReservationTimeUtils {
     }
 
     private fun parseApiTimestamp(value: String): Date? {
+        runCatching { OffsetDateTime.parse(value).toInstant() }
+            .getOrNull()
+            ?.let { return Date.from(it) }
+
+        runCatching { Instant.parse(value) }
+            .getOrNull()
+            ?.let { return Date.from(it) }
+
+        runCatching { LocalDateTime.parse(value).atZone(ZoneId.systemDefault()).toInstant() }
+            .getOrNull()
+            ?.let { return Date.from(it) }
+
         val patterns = listOf(
             "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
             "yyyy-MM-dd'T'HH:mm:ss'Z'"

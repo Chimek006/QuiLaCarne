@@ -23,7 +23,7 @@ class SyncViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _uiState.value = SyncUiState.Loading("Synchronizacja danych...", 0.10f)
 
-            syncRepository.syncAllLocalData(clearBeforeSync = true).fold(
+            syncRepository.syncAllLocalData(clearBeforeSync = false).fold(
                 onSuccess = {
                     tokenManager.setBootstrapped(true)
                     _uiState.value = SyncUiState.Success
