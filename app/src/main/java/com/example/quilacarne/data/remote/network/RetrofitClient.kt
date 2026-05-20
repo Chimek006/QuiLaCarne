@@ -8,7 +8,6 @@ import com.example.quilacarne.data.remote.api.AuthService
 import com.example.quilacarne.data.remote.api.TableService
 import com.example.quilacarne.data.remote.api.OrderService
 import okhttp3.OkHttpClient
-import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import com.example.quilacarne.data.remote.api.DishService
@@ -19,23 +18,17 @@ object RetrofitClient {
 
     fun init(context: Context) {
         if (tokenManager == null) {
+            validateHttpsForRelease()
             tokenManager = TokenManager(context)
-            Log.d("API_HTTP", "Retrofit BASE_URL=$BASE_URL")
+            Log.d("API_HTTP", "Retrofit initialized")
         }
     }
 
     private fun getTokenManager() = tokenManager!!
 
-    private val loggingInterceptor = HttpLoggingInterceptor { message ->
-        Log.d("RETROFIT_HTTP", message)
-    }.apply {
-        level = HttpLoggingInterceptor.Level.BASIC
-    }
-
     private val authOkHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .addInterceptor(ApiLoggingInterceptor())
-            .addInterceptor(loggingInterceptor)
             .build()
     }
 
@@ -43,16 +36,24 @@ object RetrofitClient {
         OkHttpClient.Builder()
             .addInterceptor(AuthInterceptor(getTokenManager()))
             .addInterceptor(ApiLoggingInterceptor())
-            .addInterceptor(loggingInterceptor)
             .authenticator(TokenAuthenticator(getTokenManager()))
             .build()
     }
 
-    private fun createRetrofit(client: OkHttpClient) = Retrofit.Builder()
-        .baseUrl(BASE_URL)
-        .client(client)
-        .addConverterFactory(GsonConverterFactory.create())
-        .build()
+    private fun createRetrofit(client: OkHttpClient): Retrofit {
+        validateHttpsForRelease()
+        return Retrofit.Builder()
+            .baseUrl(BASE_URL)
+            .client(client)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+    }
+
+    private fun validateHttpsForRelease() {
+        check(BuildConfig.DEBUG || BASE_URL.startsWith("https://", ignoreCase = true)) {
+            "Release builds require an HTTPS BASE_URL."
+        }
+    }
 
     val authService: AuthService by lazy {
         createRetrofit(authOkHttpClient).create(AuthService::class.java)

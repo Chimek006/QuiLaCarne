@@ -1,4 +1,4 @@
-package com.example.quilacarne.data.repository
+﻿package com.example.quilacarne.data.repository
 
 import android.content.Context
 import android.net.Uri
@@ -20,6 +20,7 @@ import com.example.quilacarne.data.local.entities.RestaurantTableEntity
 import com.example.quilacarne.data.local.entities.TableStatusEntity
 import com.example.quilacarne.data.local.entities.UsersEntity
 import com.example.quilacarne.data.local.entities.isActiveForTable
+import com.example.quilacarne.data.remote.dto.BootstrapResponse
 import com.example.quilacarne.data.remote.dto.CategoryDto
 import com.example.quilacarne.data.remote.dto.DishSyncDto
 import com.example.quilacarne.data.remote.dto.IngredientSyncDto
@@ -38,6 +39,8 @@ import com.example.quilacarne.data.remote.network.RetrofitClient
 import com.example.quilacarne.data.remote.network.TokenAuthenticator
 import com.example.quilacarne.utils.ReservationTimeUtils
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -149,10 +152,9 @@ class SyncRepository(
             try {
                 Log.d("SYNC_FLOW", "Operational sync started reason=$reason")
                 runCatching {
-                    syncTables().getOrThrow()
-                    syncUsers()
-                    syncReservations()
-                    syncOrdersAndItems()
+                    val snapshot = fetchOperationalSnapshot()
+                    applyOperationalSnapshot(snapshot)
+                    persistOperationalSnapshotTokens(snapshot)
                 }.also { result ->
                     result
                         .onSuccess {
@@ -168,6 +170,43 @@ class SyncRepository(
         }
     }
 
+    private suspend fun fetchOperationalSnapshot(
+        preservedPasswords: Map<String, String> = emptyMap()
+    ): OperationalSyncSnapshot = coroutineScope {
+        val now = getCurrentTimestamp()
+        val tables = async { fetchTablesSnapshot(now) }
+        val reservations = async { fetchReservationsSnapshot() }
+        val bootstrap = fetchBootstrap("BÄąâ€šĂ„â€¦d pobierania manifestu danych operacyjnych")
+        val users = async { fetchUsersSnapshot(bootstrap, preservedPasswords) }
+        val ordersAndItems = async { fetchOrdersAndItemsSnapshot(bootstrap) }
+
+        OperationalSyncSnapshot(
+            tables = tables.await(),
+            users = users.await(),
+            reservations = reservations.await(),
+            ordersAndItems = ordersAndItems.await()
+        )
+    }
+
+    private suspend fun applyOperationalSnapshot(snapshot: OperationalSyncSnapshot) {
+        database.withTransaction {
+            applyTablesSnapshot(snapshot.tables)
+            applyUsersSnapshot(snapshot.users)
+            applyReservationsSnapshot(snapshot.reservations)
+            applyOrdersAndItemsSnapshot(snapshot.ordersAndItems)
+        }
+    }
+
+    private suspend fun persistOperationalSnapshotTokens(snapshot: OperationalSyncSnapshot) {
+        persistTableSnapshotTokens(snapshot.tables)
+        persistUsersSnapshotTokens(snapshot.users)
+        persistReservationSnapshotTokens(
+            snapshot = snapshot.reservations,
+            knownTableIds = snapshot.tables.tables.map { it.id }
+        )
+        persistOrderSnapshotTokens(snapshot.ordersAndItems)
+    }
+
     private suspend fun ensureServerReachable() {
         try {
             Log.d("SYNC", "Checking csrf...")
@@ -175,11 +214,9 @@ class SyncRepository(
             val response = RetrofitClient.authService.csrf()
 
             Log.d("SYNC", "Code: ${response.code()}")
-            Log.d("SYNC", "Body: ${response.body()}")
-            Log.d("SYNC", "Error: ${response.errorBody()?.string()}")
 
             if (!response.isSuccessful) {
-                throw Exception("Serwer API jest niedostępny")
+                error("Serwer API jest niedostepny")
             }
 
         } catch (e: Exception) {
@@ -191,7 +228,7 @@ class SyncRepository(
     suspend fun syncTables(): Result<Unit> {
         return try {
             syncTableStatuses().onFailure { error ->
-                Log.w("SYNC", "Nie udało się zsynchronizować słownika statusów stolików: ${error.message}")
+                Log.w("SYNC", "Nie udaĹ‚o siÄ™ zsynchronizowaÄ‡ sĹ‚ownika statusĂłw stolikĂłw: ${error.message}")
             }
 
             val now = getCurrentTimestamp()
@@ -215,7 +252,7 @@ class SyncRepository(
                 val response = tableService.syncTables(page)
 
                 if (!response.isSuccessful) {
-                    Log.e("SYNC", "Błąd API stolików: ${response.code()}")
+                    Log.e("SYNC", "BĹ‚Ä…d API stolikĂłw: ${response.code()}")
                     break
                 }
 
@@ -290,14 +327,14 @@ class SyncRepository(
                     dao.insertTables(allTablesEntities)
                     dao.deleteTablesExcept(allTablesEntities.map { it.id })
                 }
-                Log.d("SYNC", "Zapisano ${allTablesEntities.size} stolików do bazy")
+                Log.d("SYNC", "Zapisano ${allTablesEntities.size} stolikĂłw do bazy")
             } else {
-                Log.w("SYNC", "UWAGA: Brak stolików z API!")
+                Log.w("SYNC", "UWAGA: Brak stolikĂłw z API!")
             }
 
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("SYNC_ERROR", "Błąd stolików: ", e)
+            Log.e("SYNC_ERROR", "BĹ‚Ä…d stolikĂłw: ", e)
             Result.failure(e)
         }
     }
@@ -307,7 +344,7 @@ class SyncRepository(
         val responsePl = tableService.getStatusDictionary(lang = "pl")
 
         if (!responsePl.isSuccessful || responsePl.body()?.isSuccess != true) {
-            throw Exception(responsePl.body()?.message ?: "Blad pobierania statusow")
+            throw IllegalStateException(responsePl.body()?.message ?: "Blad pobierania statusow")
         }
 
         val statusesPl = responsePl.body()
@@ -342,6 +379,157 @@ class SyncRepository(
         }
     }
 
+    private suspend fun fetchTablesSnapshot(now: String): TablesSyncSnapshot {
+        val dictionaryStatuses = runCatching { fetchTableStatusEntities(now) }
+            .onFailure { error ->
+                Log.w("SYNC", "Nie udalo sie zsynchronizowac slownika statusow stolikow: ${error.message}")
+            }
+            .getOrDefault(emptyList())
+
+        val dao = database.restaurantTableDao()
+        val existingTables = dao.getAllTablesOnce()
+        val existingTablesById = existingTables.associateBy { it.id }
+        val existingStatusTokensByTableId = existingTables.associate { table ->
+            table.id to table.statusId?.let { statusId ->
+                database.tableStatusDao()
+                    .getStatusByIdOnce(statusId)
+                    ?.token
+            }
+        }
+
+        var page = 1
+        val tables = mutableListOf<RestaurantTableEntity>()
+        val tableTokens = mutableListOf<Pair<UUID, String>>()
+        val tableStatusTokens = mutableSetOf<String>()
+
+        while (true) {
+            val response = tableService.syncTables(page)
+            val body = response.body()
+
+            if (!response.isSuccessful || body?.isSuccess != true) {
+                throw IllegalStateException(body?.message ?: "Blad API stolikow: ${response.code()}")
+            }
+
+            val items = body.data.items.orEmpty()
+            if (items.isEmpty()) break
+
+            items.forEach { dto ->
+                val tableId = dto.token.toStableUUID()
+                val existingStatusToken = existingStatusTokensByTableId[tableId]
+                val remoteStatusToken = dto.currentStatusToken()
+                val statusDecision = TableStatusSyncLogic.resolveSyncedTableStatusDecision(
+                    remoteStatusToken = remoteStatusToken,
+                    existingStatusToken = existingStatusToken,
+                    remoteUpdatedAt = dto.updatedAt,
+                    existingUpdatedAt = existingTablesById[tableId]?.updatedAt
+                )
+                val statusToken = statusDecision.statusToken
+
+                Log.d(
+                    "TABLE_STATUS_SYNC",
+                    "tableId=$tableId remote=$remoteStatusToken local=$existingStatusToken " +
+                        "final=$statusToken reason=${statusDecision.reason} " +
+                        "remoteUpdatedAt=${dto.updatedAt} localUpdatedAt=${existingTablesById[tableId]?.updatedAt}"
+                )
+
+                if (!statusToken.isNullOrBlank()) {
+                    tableStatusTokens.add(statusToken)
+                }
+
+                tables.add(
+                    RestaurantTableEntity(
+                        id = tableId,
+                        tableNumber = dto.tableNumber,
+                        capacity = dto.capacity,
+                        statusId = statusToken?.toStableUUID(),
+                        createdAt = now,
+                        updatedAt = dto.updatedAt.ifBlank { now }
+                    )
+                )
+                tableTokens.add(tableId to dto.token)
+            }
+
+            page++
+        }
+
+        val knownStatusTokens = (database.tableStatusDao().getAllStatusesOnce() + dictionaryStatuses)
+            .map { it.token.uppercase(Locale.US) }
+            .toSet()
+        val fallbackStatuses = tableStatusTokens
+            .filter { it.uppercase(Locale.US) !in knownStatusTokens }
+            .map { token ->
+                TableStatusEntity(
+                    id = token.toStableUUID(),
+                    token = token,
+                    namePl = token.toTableStatusName(),
+                    nameEn = token.toTableStatusNameEn(),
+                    createdAt = now,
+                    updatedAt = now
+                )
+            }
+
+        return TablesSyncSnapshot(
+            statuses = (dictionaryStatuses + fallbackStatuses).distinctBy { it.id },
+            tables = tables,
+            tableTokens = tableTokens
+        )
+    }
+
+    private suspend fun fetchTableStatusEntities(now: String): List<TableStatusEntity> {
+        val responsePl = tableService.getStatusDictionary(lang = "pl")
+
+        if (!responsePl.isSuccessful || responsePl.body()?.isSuccess != true) {
+            throw IllegalStateException(responsePl.body()?.message ?: "Blad pobierania statusow")
+        }
+
+        val statusesPl = responsePl.body()
+            ?.data
+            .values()
+            .orEmpty()
+
+        val statusesEnByToken = tableService.getStatusDictionary(lang = "en")
+            .takeIf { it.isSuccessful && it.body()?.isSuccess == true }
+            ?.body()
+            ?.data
+            .values()
+            .associate { dto -> dto.token to dto.name }
+            .orEmpty()
+
+        val statusesPlByToken = statusesPl.associateBy { it.token }
+        return (statusesPlByToken.keys + statusesEnByToken.keys)
+            .distinct()
+            .map { token ->
+                TableStatusEntity(
+                    id = token.toStableUUID(),
+                    token = token,
+                    namePl = statusesPlByToken[token]?.name ?: token.toTableStatusName(),
+                    nameEn = statusesEnByToken[token] ?: token.toTableStatusNameEn(),
+                    createdAt = now,
+                    updatedAt = now
+                )
+            }
+    }
+
+    private suspend fun applyTablesSnapshot(snapshot: TablesSyncSnapshot) {
+        if (snapshot.statuses.isNotEmpty()) {
+            database.tableStatusDao().insertAll(snapshot.statuses)
+        }
+
+        if (snapshot.tables.isNotEmpty()) {
+            database.restaurantTableDao().insertTables(snapshot.tables)
+            database.restaurantTableDao().deleteTablesExcept(snapshot.tables.map { it.id })
+            Log.d("SYNC", "Zapisano ${snapshot.tables.size} stolikow do bazy")
+        } else {
+            Log.w("SYNC", "UWAGA: Brak stolikow z API!")
+        }
+    }
+
+    private fun persistTableSnapshotTokens(snapshot: TablesSyncSnapshot) {
+        snapshot.tableTokens.forEach { (tableId, token) ->
+            tokenStore?.saveToken("table", tableId, token)
+        }
+    }
+
     private fun TableDto.currentStatusToken(): String? {
         return TableStatusSyncLogic.chooseStatusToken(
             buildList {
@@ -359,15 +547,26 @@ class SyncRepository(
         return TableStatusSyncLogic.tableStatusNameEn(this)
     }
 
+    private suspend fun fetchBootstrap(fallbackMessage: String): BootstrapResponse {
+        val response = orderService.getBootstrap()
+
+        if (!response.isSuccessful || response.body()?.isSuccess != true) {
+            throw IllegalStateException(response.body()?.message ?: fallbackMessage)
+        }
+
+        return response.body()?.data
+            ?: error("Brak danych manifestu")
+    }
+
     private suspend fun syncOrdersAndItems() {
         val bootstrapResponse = orderService.getBootstrap()
 
         if (!bootstrapResponse.isSuccessful || bootstrapResponse.body()?.isSuccess != true) {
-            throw Exception(bootstrapResponse.body()?.message ?: "Błąd pobierania manifestu")
+            throw IllegalStateException(bootstrapResponse.body()?.message ?: "Blad pobierania manifestu")
         }
 
         val bootstrap = bootstrapResponse.body()?.data
-            ?: throw Exception("Brak danych manifestu")
+            ?: error("Brak danych manifestu")
 
         val totalOrderPages = bootstrap.modules["orders"]?.totalPages ?: 0
         val syncedOrders = mutableListOf<OrderEntity>()
@@ -377,7 +576,7 @@ class SyncRepository(
                 val response = orderService.syncOrders(page = page)
 
                 if (!response.isSuccessful || response.body()?.isSuccess != true) {
-                    throw Exception(response.body()?.message ?: "Błąd synchronizacji zamówień")
+                    throw IllegalStateException(response.body()?.message ?: "Blad synchronizacji zamowien")
                 }
 
                 val orderDtos = response.body()
@@ -412,7 +611,7 @@ class SyncRepository(
                 val response = orderService.syncOrderItems(page = page)
 
                 if (!response.isSuccessful || response.body()?.isSuccess != true) {
-                    throw Exception(response.body()?.message ?: "Błąd synchronizacji pozycji")
+                    throw IllegalStateException(response.body()?.message ?: "Blad synchronizacji pozycji")
                 }
 
                 response.body()
@@ -437,6 +636,95 @@ class SyncRepository(
         }
     }
 
+    private suspend fun fetchOrdersAndItemsSnapshot(bootstrap: BootstrapResponse): OrdersAndItemsSyncSnapshot {
+        val totalOrderPages = bootstrap.modules["orders"]?.totalPages ?: 0
+        val syncedOrders = mutableListOf<OrderEntity>()
+        val orderTokens = mutableListOf<OrderTokenSnapshot>()
+
+        if (totalOrderPages > 0) {
+            for (page in 1..totalOrderPages) {
+                val response = orderService.syncOrders(page = page)
+
+                if (!response.isSuccessful || response.body()?.isSuccess != true) {
+                    throw IllegalStateException(response.body()?.message ?: "Blad synchronizacji zamowien")
+                }
+
+                response.body()
+                    ?.data
+                    ?.items
+                    .orEmpty()
+                    .forEach { dto ->
+                        val order = dto.toOrderEntity()
+                        syncedOrders.add(order)
+                        orderTokens.add(
+                            OrderTokenSnapshot(
+                                orderId = order.id,
+                                orderToken = dto.token,
+                                reservationToken = dto.reservationToken
+                            )
+                        )
+                    }
+            }
+        }
+
+        val totalItemPages = bootstrap.modules["orderItems"]?.totalPages ?: 0
+        val syncedItems = mutableListOf<OrderItemEntity>()
+        val orderItemTokens = mutableListOf<Pair<UUID, String>>()
+
+        if (totalItemPages > 0) {
+            for (page in 1..totalItemPages) {
+                val response = orderService.syncOrderItems(page = page)
+
+                if (!response.isSuccessful || response.body()?.isSuccess != true) {
+                    throw IllegalStateException(response.body()?.message ?: "Blad synchronizacji pozycji")
+                }
+
+                response.body()
+                    ?.data
+                    ?.items
+                    .orEmpty()
+                    .forEach { dto ->
+                        val item = dto.toOrderItemEntity()
+                        syncedItems.add(item)
+                        orderItemTokens.add(item.id to dto.token)
+                    }
+            }
+        }
+
+        return OrdersAndItemsSyncSnapshot(
+            orders = syncedOrders,
+            orderTokens = orderTokens,
+            orderItems = syncedItems,
+            orderItemTokens = orderItemTokens
+        )
+    }
+
+    private suspend fun applyOrdersAndItemsSnapshot(snapshot: OrdersAndItemsSyncSnapshot) {
+        if (snapshot.orders.isEmpty()) {
+            database.orderDao().clearOrders()
+        } else {
+            database.orderDao().insertOrders(snapshot.orders)
+            database.orderDao().deleteOrdersExcept(snapshot.orders.map { it.id })
+        }
+
+        if (snapshot.orderItems.isEmpty()) {
+            database.orderDao().clearOrderItems()
+        } else {
+            database.orderDao().insertOrderItems(snapshot.orderItems)
+            database.orderDao().deleteOrderItemsExcept(snapshot.orderItems.map { it.id })
+        }
+    }
+
+    private fun persistOrderSnapshotTokens(snapshot: OrdersAndItemsSyncSnapshot) {
+        snapshot.orderTokens.forEach { token ->
+            tokenStore?.saveToken("order", token.orderId, token.orderToken)
+            tokenStore?.saveOrderReservationToken(token.orderId, token.reservationToken)
+        }
+        snapshot.orderItemTokens.forEach { (orderItemId, token) ->
+            tokenStore?.saveToken("orderItem", orderItemId, token)
+        }
+    }
+
     private suspend fun syncUsers(preservedPasswords: Map<String, String> = emptyMap()) {
         val effectivePreservedPasswords = preservedPasswords.ifEmpty {
             database.userDao()
@@ -447,7 +735,7 @@ class SyncRepository(
         val bootstrapResponse = orderService.getBootstrap()
 
         if (!bootstrapResponse.isSuccessful || bootstrapResponse.body()?.isSuccess != true) {
-            throw Exception(bootstrapResponse.body()?.message ?: "Błąd pobierania manifestu użytkowników")
+            throw IllegalStateException(bootstrapResponse.body()?.message ?: "Blad pobierania manifestu uzytkownikow")
         }
 
         val totalPages = bootstrapResponse.body()
@@ -463,7 +751,7 @@ class SyncRepository(
             val response = orderService.syncUsers(page = page)
 
             if (!response.isSuccessful || response.body()?.isSuccess != true) {
-                throw Exception(response.body()?.message ?: "Błąd synchronizacji użytkowników")
+                throw IllegalStateException(response.body()?.message ?: "Blad synchronizacji uzytkownikow")
             }
 
             val usersDto = response.body()
@@ -482,6 +770,58 @@ class SyncRepository(
         }
     }
 
+    private suspend fun fetchUsersSnapshot(
+        bootstrap: BootstrapResponse,
+        preservedPasswords: Map<String, String> = emptyMap()
+    ): UsersSyncSnapshot {
+        val effectivePreservedPasswords = preservedPasswords.ifEmpty {
+            database.userDao()
+                .getAllUsersOnce()
+                .filter { it.password.isNotBlank() }
+                .toPreservedPasswordMap()
+        }
+        val totalPages = bootstrap.modules["users"]?.totalPages ?: 0
+
+        if (totalPages <= 0) {
+            return UsersSyncSnapshot()
+        }
+
+        val users = mutableListOf<UsersEntity>()
+        val userTokens = mutableListOf<Pair<UUID, String>>()
+
+        for (page in 1..totalPages) {
+            val response = orderService.syncUsers(page = page)
+
+            if (!response.isSuccessful || response.body()?.isSuccess != true) {
+                throw IllegalStateException(response.body()?.message ?: "Blad synchronizacji uzytkownikow")
+            }
+
+            response.body()
+                ?.data
+                ?.items
+                .orEmpty()
+                .forEach { dto ->
+                    val user = dto.toUsersEntity(effectivePreservedPasswords)
+                    users.add(user)
+                    userTokens.add(user.id to dto.token)
+                }
+        }
+
+        return UsersSyncSnapshot(users = users, userTokens = userTokens)
+    }
+
+    private suspend fun applyUsersSnapshot(snapshot: UsersSyncSnapshot) {
+        if (snapshot.users.isNotEmpty()) {
+            database.userDao().insertUsers(snapshot.users)
+        }
+    }
+
+    private fun persistUsersSnapshotTokens(snapshot: UsersSyncSnapshot) {
+        snapshot.userTokens.forEach { (userId, token) ->
+            tokenStore?.saveToken("user", userId, token)
+        }
+    }
+
     private suspend fun syncReservations() {
         var page = 1
         val nowMillis = System.currentTimeMillis()
@@ -492,7 +832,7 @@ class SyncRepository(
             val response = orderService.syncReservations(page = page)
 
             if (!response.isSuccessful || response.body()?.isSuccess != true) {
-                throw Exception(response.body()?.message ?: "Błąd synchronizacji rezerwacji")
+                throw IllegalStateException(response.body()?.message ?: "Blad synchronizacji rezerwacji")
             }
 
             val reservations = response.body()?.data?.items.orEmpty()
@@ -532,6 +872,84 @@ class SyncRepository(
             .getAllTablesOnce()
             .filter { it.id !in currentReservationByTable.keys }
             .forEach { table -> tokenStore?.clearTableReservationToken(table.id) }
+    }
+
+    private suspend fun fetchReservationsSnapshot(): ReservationsSyncSnapshot {
+        var page = 1
+        val nowMillis = System.currentTimeMillis()
+        val currentReservationByTable = mutableMapOf<UUID, ReservationEntity>()
+        val syncedReservations = mutableListOf<ReservationEntity>()
+        val reservationTokens = mutableListOf<ReservationTokenSnapshot>()
+
+        while (true) {
+            val response = orderService.syncReservations(page = page)
+
+            if (!response.isSuccessful || response.body()?.isSuccess != true) {
+                throw IllegalStateException(response.body()?.message ?: "Blad synchronizacji rezerwacji")
+            }
+
+            val reservations = response.body()?.data?.items.orEmpty()
+            if (reservations.isEmpty()) break
+
+            reservations.forEach { reservation ->
+                val entity = reservation.toReservationEntity()
+                syncedReservations.add(entity)
+                reservationTokens.add(
+                    ReservationTokenSnapshot(
+                        reservationId = entity.id,
+                        reservationToken = reservation.token,
+                        userToken = reservation.userToken
+                    )
+                )
+
+                if (ReservationTimeUtils.isCurrent(entity, nowMillis)) {
+                    val current = currentReservationByTable[entity.tableId]
+
+                    if (current == null || entity.updatedAt >= current.updatedAt) {
+                        currentReservationByTable[entity.tableId] = entity
+                    }
+                }
+            }
+
+            page++
+        }
+
+        return ReservationsSyncSnapshot(
+            reservations = syncedReservations,
+            reservationTokens = reservationTokens,
+            currentReservationTokensByTableId = currentReservationByTable
+                .mapValues { (_, reservation) -> reservation.token }
+        )
+    }
+
+    private suspend fun applyReservationsSnapshot(snapshot: ReservationsSyncSnapshot) {
+        if (snapshot.reservations.isEmpty()) {
+            database.reservationDao().clearAll()
+        } else {
+            database.reservationDao().insertAll(snapshot.reservations)
+            database.reservationDao().deleteReservationsExcept(snapshot.reservations.map { it.id })
+        }
+    }
+
+    private suspend fun persistReservationSnapshotTokens(
+        snapshot: ReservationsSyncSnapshot,
+        knownTableIds: List<UUID>
+    ) {
+        snapshot.reservationTokens.forEach { token ->
+            tokenStore?.saveToken("reservation", token.reservationId, token.reservationToken)
+            tokenStore?.saveReservationUserToken(token.reservationToken, token.userToken)
+        }
+
+        snapshot.currentReservationTokensByTableId.forEach { (tableId, reservationToken) ->
+            tokenStore?.saveTableReservationToken(tableId, reservationToken)
+        }
+
+        val tableIds = knownTableIds.ifEmpty {
+            database.restaurantTableDao().getAllTablesOnce().map { it.id }
+        }
+        tableIds
+            .filter { tableId -> tableId !in snapshot.currentReservationTokensByTableId.keys }
+            .forEach { tableId -> tokenStore?.clearTableReservationToken(tableId) }
     }
 
     private fun storeReservationTokens(reservation: ReservationSyncDto) {
@@ -752,40 +1170,32 @@ class SyncRepository(
         }
     }
 
-    suspend fun occupyTableRemote(tableId: UUID): Result<UUID> = withContext(Dispatchers.IO) {
-        runCatching {
-            val reservationSelection = getReservationForOccupyingTable(tableId)
 
-            if (reservationSelection == null) {
-                throw UnsupportedOperationException(
+    suspend fun prepareOrderForOccupyingTable(tableId: UUID): Result<UUID> = withContext(Dispatchers.IO) {
+        runCatching {
+            syncOperationalData("prepare-occupy-order").getOrThrow()
+
+            val reservationSelection = selectReservationForOccupyingTable(tableId)
+                ?: throw UnsupportedOperationException(
                     "Nie mozna zajac stolika bez aktualnej lub nadchodzacej rezerwacji."
                 )
-            }
 
-            Log.d(
-                "OCCUPY_TABLE",
-                "Assigning waiter: tableId=$tableId, reservationToken=${reservationSelection.token}, reservationType=${reservationSelection.type}"
-            )
+            findOrderIdForReservation(tableId, reservationSelection.token)
+                ?: throw IllegalStateException(
+                    "Nie znaleziono zamowienia powiazanego z rezerwacja. " +
+                        "Odswiez dane i sprobuj ponownie."
+                )
+        }
+    }
 
-            runCatching {
-                orderService.assignWaiterToReservation(reservationSelection.token)
-                    .requireApiSuccess("Nie udalo sie przypisac kelnera w API")
-            }.onFailure { error ->
-                if (error.message?.contains("Reservation not found", ignoreCase = true) == true) {
-                    throw IllegalStateException(
-                        "Nie można zająć rezerwacji bez utworzonego zamówienia. " +
-                            "Rezerwacja prawdopodobnie nie ma pozycji zamówienia."
-                    )
-                }
-                throw error
-            }
+    suspend fun assignWaiterToReservationForOrder(orderId: UUID): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val reservationToken = getReservationTokenForOrder(orderId)
 
-            syncOperationalData().getOrThrow()
+            orderService.assignWaiterToReservation(reservationToken)
+                .requireApiSuccess("Nie udalo sie przypisac kelnera w API")
 
-            val orderId = findOrderIdForReservation(tableId, reservationSelection.token)
-                ?: throw IllegalStateException("API przypisalo kelnera, ale synchronizacja nie zwrocila aktywnego zamowienia.")
-
-            orderId
+            syncOperationalData("assign-waiter-on-order-save").getOrThrow()
         }
     }
 
@@ -856,9 +1266,7 @@ class SyncRepository(
         }
     }
 
-    private suspend fun getReservationForOccupyingTable(tableId: UUID): OccupyReservationSelection? {
-        syncReservations()
-
+    private suspend fun selectReservationForOccupyingTable(tableId: UUID): OccupyReservationSelection? {
         val nowMillis = System.currentTimeMillis()
         val reservationDao = database.reservationDao()
 
@@ -877,7 +1285,7 @@ class SyncRepository(
         if (selection != null) {
             Log.d(
                 "OCCUPY_TABLE",
-                "Using ${selection.type} reservation token=${selection.token} for tableId=$tableId"
+                "Using ${selection.type} reservation for tableId=$tableId"
             )
         } else {
             Log.w(
@@ -933,7 +1341,7 @@ class SyncRepository(
         val body = body()
         if (!isSuccessful) {
             val rawError = errorBody()?.string()
-            throw Exception(body?.message ?: ApiResponseLogic.errorMessageFromBody(rawError) ?: fallbackMessage)
+            throw IllegalStateException(body?.message ?: ApiResponseLogic.errorMessageFromBody(rawError) ?: fallbackMessage)
         }
 
         ApiResponseLogic.assertWrapperSuccess(body, fallbackMessage)
@@ -1110,3 +1518,46 @@ class SyncRepository(
         return trim().lowercase(Locale.US)
     }
 }
+
+private data class OperationalSyncSnapshot(
+    val tables: TablesSyncSnapshot,
+    val users: UsersSyncSnapshot,
+    val reservations: ReservationsSyncSnapshot,
+    val ordersAndItems: OrdersAndItemsSyncSnapshot
+)
+
+private data class TablesSyncSnapshot(
+    val statuses: List<TableStatusEntity> = emptyList(),
+    val tables: List<RestaurantTableEntity> = emptyList(),
+    val tableTokens: List<Pair<UUID, String>> = emptyList()
+)
+
+private data class UsersSyncSnapshot(
+    val users: List<UsersEntity> = emptyList(),
+    val userTokens: List<Pair<UUID, String>> = emptyList()
+)
+
+private data class ReservationsSyncSnapshot(
+    val reservations: List<ReservationEntity> = emptyList(),
+    val reservationTokens: List<ReservationTokenSnapshot> = emptyList(),
+    val currentReservationTokensByTableId: Map<UUID, String> = emptyMap()
+)
+
+private data class ReservationTokenSnapshot(
+    val reservationId: UUID,
+    val reservationToken: String,
+    val userToken: String?
+)
+
+private data class OrdersAndItemsSyncSnapshot(
+    val orders: List<OrderEntity> = emptyList(),
+    val orderTokens: List<OrderTokenSnapshot> = emptyList(),
+    val orderItems: List<OrderItemEntity> = emptyList(),
+    val orderItemTokens: List<Pair<UUID, String>> = emptyList()
+)
+
+private data class OrderTokenSnapshot(
+    val orderId: UUID,
+    val orderToken: String,
+    val reservationToken: String?
+)

@@ -2,6 +2,7 @@ package com.example.quilacarne.data.remote.network
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.example.quilacarne.utils.SecurePreferences
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -21,13 +22,17 @@ class RemoteTokenStoreTest {
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
-        context.getSharedPreferences("remote_token_store", Context.MODE_PRIVATE).edit().clear().commit()
+        SecurePreferences.setEncryptedFactoryForTests { appContext, name ->
+            appContext.getSharedPreferences("test_encrypted_$name", Context.MODE_PRIVATE)
+        }
+        RemoteTokenStore.clearForTests(context)
         store = RemoteTokenStore(context)
     }
 
     @After
     fun tearDown() {
-        context.getSharedPreferences("remote_token_store", Context.MODE_PRIVATE).edit().clear().commit()
+        RemoteTokenStore.clearForTests(context)
+        SecurePreferences.resetEncryptedFactoryForTests()
     }
 
     @Test
@@ -83,5 +88,23 @@ class RemoteTokenStoreTest {
 
         store.saveReservationUserToken("reservation-token", "user-token")
         assertEquals("user-token", store.getReservationUserToken("reservation-token"))
+    }
+
+    @Test
+    fun legacyPreferencesAreMigratedToEncryptedStorage() {
+        val id = UUID.randomUUID()
+        RemoteTokenStore.clearForTests(context)
+        context.getSharedPreferences(RemoteTokenStore.LEGACY_PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString("table_token_$id", "legacy-table-token")
+            .commit()
+
+        store = RemoteTokenStore(context)
+
+        assertEquals("legacy-table-token", store.getToken("table", id))
+        assertNull(
+            context.getSharedPreferences(RemoteTokenStore.LEGACY_PREFS_NAME, Context.MODE_PRIVATE)
+                .getString("table_token_$id", null)
+        )
     }
 }

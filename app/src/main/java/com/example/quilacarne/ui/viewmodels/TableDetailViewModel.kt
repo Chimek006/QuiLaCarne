@@ -190,20 +190,14 @@ class TableDetailViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    fun assignWaiterAndOccupyTable(
+    fun prepareOrderEditForOccupyingTable(
         tableId: UUID,
-        statusToken: String,
-        statusName: String,
-        waiterId: UUID,
         onResult: (Result<UUID>) -> Unit
     ) {
         viewModelScope.launch {
-            val result = syncRepository.occupyTableRemote(tableId)
-                .onSuccess { remoteOrderId ->
-                    db.orderDao().updateOrderWaiter(remoteOrderId, waiterId, getCurrentTimestamp())
-                }
+            val result = syncRepository.prepareOrderForOccupyingTable(tableId)
                 .onFailure { error ->
-                    Log.w("TABLE_REMOTE", "Nie udalo sie zajac stolika przez API: ${error.message}")
+                    Log.w("TABLE_REMOTE", "Nie udalo sie przygotowac edycji zamowienia: ${error.message}")
                 }
 
             onResult(result)

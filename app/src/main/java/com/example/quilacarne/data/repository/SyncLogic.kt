@@ -136,16 +136,10 @@ internal object TableDisplayStatusLogic {
         val physicalToken = normalizeStatusToken(physicalStatusToken)
         return when {
             physicalToken != null && physicalToken in physicalStatusPriority -> physicalToken
-            physicalToken == "AVAILABLE" -> {
-                if (hasReservation) {
-                    "RESERVED"
-                } else {
-                    "AVAILABLE"
-                }
-            }
             hasActiveOrder -> "OCCUPIED"
             hasReservation -> "RESERVED"
-            physicalToken != null -> "AVAILABLE"
+            physicalToken == "AVAILABLE" || physicalToken == "OCCUPIED" -> "AVAILABLE"
+            physicalToken != null -> physicalToken
             else -> "AVAILABLE"
         }
     }

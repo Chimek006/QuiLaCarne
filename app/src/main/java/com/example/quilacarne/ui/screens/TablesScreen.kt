@@ -33,10 +33,10 @@ import com.example.quilacarne.ui.viewmodels.TablesViewModel
 @Composable
 fun TablesScreen(navController: NavController, viewModel: TablesViewModel) {
     val tables by viewModel.tableUiStates.collectAsState()
-    val isSyncComplete by viewModel.isSyncComplete.collectAsState()
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
     val language = rememberAppLanguage()
 
-    val isLoading = tables.isEmpty() && !isSyncComplete
+    val isLoading = tables.isEmpty() && isRefreshing
 
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFFFDFDFD))) {
         QuiLaCarneHeader(navController = navController, showBack = true)

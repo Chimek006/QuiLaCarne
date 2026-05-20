@@ -21,6 +21,7 @@ class RealtimeSyncClient(
     private val tokenManager: TokenManager,
     private val syncRepository: SyncRepository,
     private val scope: CoroutineScope,
+    private val waiterNotificationHelper: WaiterAssignmentNotificationHelper? = null,
     private val webSocketUrl: String = BuildConfig.WEBSOCKET_URL
 ) {
     private val client = OkHttpClient.Builder()
@@ -34,9 +35,11 @@ class RealtimeSyncClient(
     private var activeToken: String? = null
     private var manuallyStopped = true
     private var disabledLogShown = false
+    private var invalidUrlLogShown = false
+    private var reconnectAttempt = 0
 
     fun isConfigured(): Boolean {
-        return webSocketUrl.isNotBlank()
+        return webSocketUrl.isNotBlank() && isUrlAllowedForBuild()
     }
 
     fun isConnected(): Boolean {
@@ -46,6 +49,8 @@ class RealtimeSyncClient(
     fun start() {
         if (webSocketUrl.isBlank()) {
             logDisabledOnce()
+        } else if (!isUrlAllowedForBuild()) {
+            logInvalidUrlOnce()
         } else {
             val token = tokenManager.getAccessToken()
 
@@ -63,6 +68,7 @@ class RealtimeSyncClient(
         reconnectJob?.cancel()
         reconnectJob = null
         activeToken = null
+        reconnectAttempt = 0
         connected.set(false)
         webSocket?.close(NORMAL_CLOSE_CODE, "Realtime sync stopped")
         webSocket = null
@@ -85,7 +91,7 @@ class RealtimeSyncClient(
             .addHeader("Authorization", "Bearer $token")
             .build()
 
-        Log.d(TAG, "Connecting WebSocket url=$webSocketUrl")
+        Log.d(TAG, "Connecting WebSocket target=${request.url.scheme}://${request.url.host}")
         webSocket = client.newWebSocket(request, createListener())
     }
 
@@ -93,13 +99,20 @@ class RealtimeSyncClient(
         return object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 connected.set(true)
+                reconnectAttempt = 0
                 Log.d(TAG, "WebSocket connected code=${response.code}")
                 triggerOperationalSync("connected")
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
-                Log.d(TAG, "WebSocket message received preview=${text.take(LOG_PREVIEW_LIMIT)}")
-                triggerOperationalSync("text-message")
+                val event = RealtimeEventParser.parse(text)
+                if (event == null) {
+                    Log.d(TAG, "WebSocket untyped message received")
+                    triggerOperationalSync("untyped-message")
+                } else {
+                    Log.d(TAG, "WebSocket event received type=${event.type}")
+                    handleEvent(event)
+                }
             }
 
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
@@ -130,10 +143,53 @@ class RealtimeSyncClient(
 
     private fun scheduleReconnect() {
         if (!manuallyStopped && reconnectJob?.isActive != true) {
+            val delayMs = nextReconnectDelayMs()
             reconnectJob = scope.launch {
-                delay(RECONNECT_DELAY_MS)
+                delay(delayMs)
                 start()
             }
+        }
+    }
+
+    private fun nextReconnectDelayMs(): Long {
+        val multiplier = 1L shl reconnectAttempt.coerceAtMost(MAX_RECONNECT_SHIFT)
+        reconnectAttempt += 1
+        return (INITIAL_RECONNECT_DELAY_MS * multiplier).coerceAtMost(MAX_RECONNECT_DELAY_MS)
+    }
+
+    private fun handleEvent(event: RealtimeEvent) {
+        when (event.type) {
+            EVENT_MENU_CHANGED -> triggerMenuSync(event.type)
+            EVENT_TABLE_STATUS_CHANGED,
+            EVENT_ORDER_STATUS_CHANGED -> triggerOperationalSync("event:${event.type}")
+            EVENT_WAITER_ASSIGNED -> {
+                triggerOperationalSync("event:${event.type}")
+                notifyWaiterAssigned(event)
+            }
+            else -> {
+                // Backend contract note: align event names once the WebSocket contract is documented.
+                triggerOperationalSync("event:${event.type}")
+            }
+        }
+    }
+
+    private fun triggerMenuSync(reason: String) {
+        scope.launch {
+            Log.d(TAG, "Realtime menu sync trigger reason=$reason")
+            syncRepository.syncMenu()
+                .onSuccess {
+                    Log.d(TAG, "Realtime menu sync finished reason=$reason")
+                }
+                .onFailure { error ->
+                    Log.e(TAG, "Realtime menu sync failed reason=$reason message=${error.message}")
+                }
+        }
+    }
+
+    private fun notifyWaiterAssigned(event: RealtimeEvent) {
+        val helper = waiterNotificationHelper ?: return
+        scope.launch {
+            helper.notifyIfAssignedToCurrentUser(event)
         }
     }
 
@@ -156,6 +212,10 @@ class RealtimeSyncClient(
         }
     }
 
+    private fun isUrlAllowedForBuild(): Boolean {
+        return BuildConfig.DEBUG || webSocketUrl.startsWith("wss://", ignoreCase = true)
+    }
+
     private fun logDisabledOnce() {
         if (!disabledLogShown) {
             disabledLogShown = true
@@ -163,11 +223,23 @@ class RealtimeSyncClient(
         }
     }
 
+    private fun logInvalidUrlOnce() {
+        if (!invalidUrlLogShown) {
+            invalidUrlLogShown = true
+            Log.w(TAG, "WebSocket disabled because release builds require wss://")
+        }
+    }
+
     private companion object {
         const val TAG = "REALTIME_WS"
         const val NORMAL_CLOSE_CODE = 1000
         const val PING_INTERVAL_SECONDS = 30L
-        const val RECONNECT_DELAY_MS = 5_000L
-        const val LOG_PREVIEW_LIMIT = 120
+        const val INITIAL_RECONNECT_DELAY_MS = 5_000L
+        const val MAX_RECONNECT_DELAY_MS = 60_000L
+        const val MAX_RECONNECT_SHIFT = 4
+        const val EVENT_TABLE_STATUS_CHANGED = "TABLE_STATUS_CHANGED"
+        const val EVENT_MENU_CHANGED = "MENU_CHANGED"
+        const val EVENT_WAITER_ASSIGNED = "WAITER_ASSIGNED"
+        const val EVENT_ORDER_STATUS_CHANGED = "ORDER_STATUS_CHANGED"
     }
 }

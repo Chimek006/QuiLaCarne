@@ -59,7 +59,6 @@ abstract class AppDatabase : RoomDatabase() {
                 }
 
                 val passphrase = SecurityUtil.getDatabasePassword(context)
-                Log.d("DB_PASSWORD", String(passphrase))
                 val factory = SupportFactory(passphrase)
 
                 val instance = Room.databaseBuilder(

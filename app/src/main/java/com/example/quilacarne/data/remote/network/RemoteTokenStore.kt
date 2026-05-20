@@ -1,10 +1,18 @@
 package com.example.quilacarne.data.remote.network
 
 import android.content.Context
+import android.content.SharedPreferences
+import androidx.core.content.edit
+import com.example.quilacarne.utils.SecurePreferences
 import java.util.UUID
 
 class RemoteTokenStore(context: Context) {
-    private val prefs = context.getSharedPreferences("remote_token_store", Context.MODE_PRIVATE)
+    private val prefs: SharedPreferences = SecurePreferences.encrypted(context, ENCRYPTED_PREFS_NAME)
+    private val legacyPrefs: SharedPreferences = SecurePreferences.legacy(context, LEGACY_PREFS_NAME)
+
+    init {
+        migrateLegacyPrefs()
+    }
 
     fun saveToken(type: String, localId: UUID, token: String?) {
         if (token.isNullOrBlank()) return
@@ -57,4 +65,27 @@ class RemoteTokenStore(context: Context) {
     }
 
     private fun tokenKey(type: String, localId: UUID): String = "${type}_token_$localId"
+
+    private fun migrateLegacyPrefs() {
+        if (legacyPrefs.all.isEmpty()) return
+
+        prefs.edit {
+            legacyPrefs.all.forEach { (key, value) ->
+                if (value is String) {
+                    putString(key, value)
+                }
+            }
+        }
+        legacyPrefs.edit().clear().apply()
+    }
+
+    companion object {
+        const val LEGACY_PREFS_NAME = "remote_token_store"
+        const val ENCRYPTED_PREFS_NAME = "remote_token_store_encrypted"
+
+        fun clearForTests(context: Context) {
+            SecurePreferences.clearForTests(context, LEGACY_PREFS_NAME)
+            SecurePreferences.clearForTests(context, ENCRYPTED_PREFS_NAME)
+        }
+    }
 }

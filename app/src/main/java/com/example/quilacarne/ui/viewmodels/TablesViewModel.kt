@@ -27,6 +27,17 @@ class TablesViewModel(private val repository: SyncRepository) : ViewModel() {
     val isSyncComplete: StateFlow<Boolean> = _isSyncComplete
     private var lastTableUiStatesById: Map<UUID, TableUiState> = emptyMap()
 
+    val isRefreshing: StateFlow<Boolean> = combine(
+        _isSyncComplete,
+        repository.getOperationalSyncRunningFlow()
+    ) { isManualSyncComplete, isOperationalSyncRunning ->
+        !isManualSyncComplete || isOperationalSyncRunning
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = false
+    )
+
     val tables: StateFlow<List<RestaurantTableEntity>> = repository.getTablesFlow()
         .stateIn(
             scope = viewModelScope,
@@ -65,6 +76,10 @@ class TablesViewModel(private val repository: SyncRepository) : ViewModel() {
         tableUiInput,
         repository.getOperationalSyncRunningFlow()
     ) { input, isSyncing ->
+        if (isSyncing) {
+            return@combine lastTableUiStatesById.values.sortedBy { it.tableNumber }
+        }
+
         val states = buildTableUiStates(input, isSyncing)
         lastTableUiStatesById = states.associateBy { it.id }
         states

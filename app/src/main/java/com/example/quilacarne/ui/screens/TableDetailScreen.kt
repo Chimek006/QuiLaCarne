@@ -245,32 +245,13 @@ fun TableDetailScreen(
                     statusSaveError = null
 
                     if (status.token == "OCCUPIED") {
-                        val waiter = stagedWaiter
-                        if (waiter != null) {
-                            viewModel.assignWaiterAndOccupyTable(
-                                tableId = tableId,
-                                statusToken = status.token,
-                                statusName = status.name,
-                                waiterId = waiter.id
-                            ) { result ->
-                                isSavingChanges = false
-                                result
-                                    .onSuccess { orderId ->
-                                        stagedStatus = null
-                                        stagedWaiter = null
-                                        statusSaveError = null
-                                        navController.navigate("order_add/$tableId/$orderId")
-                                    }
-                                    .onFailure { error ->
-                                        stagedStatus = null
-                                        stagedWaiter = null
-                                        statusSaveError = error.message ?: language.choose("Nie udalo sie zajac stolika.", "Could not occupy the table.")
-                                    }
-                            }
-                        } else {
-                            isSavingChanges = false
-                            statusSaveError = language.choose("Wybierz kelnera przed zajeciem stolika.", "Select a waiter before occupying the table.")
-                        }
+                        isSavingChanges = false
+                        stagedStatus = null
+                        stagedWaiter = null
+                        statusSaveError = language.choose(
+                            "Wybierz kelnera i zapisz zamowienie na ekranie edycji.",
+                            "Select a waiter and save the order on the edit screen."
+                        )
                     } else {
                         viewModel.changeTableStatus(
                             tableId = tableId,
@@ -354,10 +335,25 @@ fun TableDetailScreen(
                     val status = pendingOccupiedStatus
                     if (status != null) {
                         statusSaveError = null
-                        stagedStatus = status
-                        stagedWaiter = waiter
                         showWaiterDialog = false
                         pendingOccupiedStatus = null
+                        isSavingChanges = true
+
+                        viewModel.prepareOrderEditForOccupyingTable(tableId) { result ->
+                            isSavingChanges = false
+                            result
+                                .onSuccess { orderId ->
+                                    navController.navigate("order_add/$tableId/$orderId?pendingWaiterId=${waiter.id}")
+                                }
+                                .onFailure { error ->
+                                    stagedStatus = null
+                                    stagedWaiter = null
+                                    statusSaveError = error.message ?: language.choose(
+                                        "Nie udalo sie otworzyc edycji zamowienia.",
+                                        "Could not open order editing."
+                                    )
+                                }
+                        }
                     }
                 }
             )

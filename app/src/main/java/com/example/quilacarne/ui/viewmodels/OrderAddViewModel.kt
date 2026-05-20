@@ -43,6 +43,12 @@ class OrderAddViewModel(application: Application) : AndroidViewModel(application
     private val _table = MutableStateFlow<RestaurantTableEntity?>(null)
     val table: StateFlow<RestaurantTableEntity?> = _table
 
+    private val _pendingWaiterId = MutableStateFlow<UUID?>(null)
+    val pendingWaiterId: StateFlow<UUID?> = _pendingWaiterId
+
+    private val _pendingWaiterName = MutableStateFlow<String?>(null)
+    val pendingWaiterName: StateFlow<String?> = _pendingWaiterName
+
     private var orderId: UUID? = null
     private var orderItemsJob: Job? = null
     private var tableJob: Job? = null
@@ -62,9 +68,20 @@ class OrderAddViewModel(application: Application) : AndroidViewModel(application
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    fun load(tableId: UUID, orderId: UUID) {
+    fun load(tableId: UUID, orderId: UUID, pendingWaiterId: UUID? = null) {
         this.orderId = orderId
+        _pendingWaiterId.value = pendingWaiterId
+        _pendingWaiterName.value = null
         _hasPendingChanges.value = false
+
+        if (pendingWaiterId != null) {
+            viewModelScope.launch {
+                _pendingWaiterName.value = db.userDao()
+                    .getAllUsersOnce()
+                    .firstOrNull { it.id == pendingWaiterId }
+                    ?.username
+            }
+        }
 
         orderItemsJob?.cancel()
         orderItemsJob = viewModelScope.launch {
@@ -138,16 +155,23 @@ class OrderAddViewModel(application: Application) : AndroidViewModel(application
         _hasPendingChanges.value = true
     }
 
-    fun saveChanges(onSaved: () -> Unit = {}) {
+    fun saveChanges(onSaved: (Boolean, String?) -> Unit = { _, _ -> }) {
         val currentOrderId = orderId ?: return
         val pendingItems = _pendingItems.value
+        val waiterIdToAssign = _pendingWaiterId.value
 
         viewModelScope.launch {
             val now = getCurrentTimestamp()
             val existingItemsBeforeSave = db.orderDao().getItemsForOrderOnce(currentOrderId)
 
-            if (!saveRemoteChanges(currentOrderId, existingItemsBeforeSave, pendingItems)) {
-                onSaved()
+            val remoteResult = saveRemoteChanges(
+                orderId = currentOrderId,
+                existingItems = existingItemsBeforeSave,
+                pendingItems = pendingItems,
+                pendingWaiterId = waiterIdToAssign
+            )
+            if (remoteResult.isFailure) {
+                onSaved(false, remoteResult.exceptionOrNull()?.message)
                 return@launch
             }
 
@@ -199,10 +223,17 @@ class OrderAddViewModel(application: Application) : AndroidViewModel(application
                     }
 
                 refreshOrderTotal(currentOrderId, now)
+                if (waiterIdToAssign != null) {
+                    db.orderDao().updateOrderWaiter(currentOrderId, waiterIdToAssign, now)
+                }
             }
 
             _hasPendingChanges.value = false
-            onSaved()
+            if (waiterIdToAssign != null) {
+                _pendingWaiterId.value = null
+                _pendingWaiterName.value = null
+            }
+            onSaved(true, null)
         }
     }
 
@@ -217,8 +248,9 @@ class OrderAddViewModel(application: Application) : AndroidViewModel(application
     private suspend fun saveRemoteChanges(
         orderId: UUID,
         existingItems: List<OrderItemEntity>,
-        pendingItems: List<PendingOrderItem>
-    ): Boolean {
+        pendingItems: List<PendingOrderItem>,
+        pendingWaiterId: UUID?
+    ): Result<Unit> {
         val existingByDish = existingItems
             .mapNotNull { item -> item.productId?.let { dishId -> dishId to item.quantity } }
             .groupBy({ it.first }, { it.second })
@@ -244,17 +276,27 @@ class OrderAddViewModel(application: Application) : AndroidViewModel(application
             }
         }
 
-        if (additions.isEmpty() && removals.isEmpty()) {
-            return true
+        var saveResult = Result.success(Unit)
+
+        if (additions.isNotEmpty() || removals.isNotEmpty()) {
+            saveResult = syncRepository.saveReservationItemDeltas(
+                orderId = orderId,
+                additions = additions,
+                removals = removals
+            ).onFailure { error ->
+                Log.w("ORDER_REMOTE", "Nie udalo sie zapisac pozycji zamowienia w API: ${error.message}")
+            }
+
         }
 
-        return syncRepository.saveReservationItemDeltas(
-            orderId = orderId,
-            additions = additions,
-            removals = removals
-        ).onFailure { error ->
-            Log.w("ORDER_REMOTE", "Nie udalo sie zapisac pozycji zamowienia w API: ${error.message}")
-        }.isSuccess
+        if (saveResult.isSuccess && pendingWaiterId != null) {
+            saveResult = syncRepository.assignWaiterToReservationForOrder(orderId)
+                .onFailure { error ->
+                    Log.w("ORDER_REMOTE", "Nie udalo sie przypisac kelnera w API: ${error.message}")
+                }
+        }
+
+        return saveResult
     }
 
     private fun getCurrentTimestamp(): String =

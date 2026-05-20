@@ -1,23 +1,31 @@
 package com.example.quilacarne
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.example.quilacarne.data.local.AppDatabase
 import com.example.quilacarne.data.local.TokenManager
 import com.example.quilacarne.data.remote.dto.LoginRequest
 import com.example.quilacarne.data.remote.network.NetworkMonitor
 import com.example.quilacarne.data.remote.network.RealtimeSyncClient
 import com.example.quilacarne.data.remote.network.RetrofitClient
+import com.example.quilacarne.data.remote.network.WaiterAssignmentNotificationHelper
 import com.example.quilacarne.data.repository.SyncRepository
 import com.example.quilacarne.ui.i18n.AppLanguageStore
 import com.example.quilacarne.ui.screens.*
@@ -36,11 +44,13 @@ class MainActivity : ComponentActivity() {
         lateinit var networkMonitor: NetworkMonitor
         private const val CONNECTION_CHECK_INTERVAL_MS = 15_000L
         private const val FALLBACK_POLL_INTERVAL_MS = 30_000L
+        private const val NOTIFICATION_PERMISSION_REQUEST_CODE = 101
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
 
         super.onCreate(savedInstanceState)
+        requestNotificationPermissionIfNeeded()
 
         networkMonitor =
             NetworkMonitor(applicationContext)
@@ -175,7 +185,14 @@ class MainActivity : ComponentActivity() {
                     }
 
                     composable(
-                        route = "order_add/{tableId}/{orderId}"
+                        route = "order_add/{tableId}/{orderId}?pendingWaiterId={pendingWaiterId}",
+                        arguments = listOf(
+                            navArgument("pendingWaiterId") {
+                                type = NavType.StringType
+                                nullable = true
+                                defaultValue = null
+                            }
+                        )
                     ) { backStackEntry ->
 
                         val tableIdString =
@@ -212,10 +229,27 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
+                        val pendingWaiterIdString =
+                            backStackEntry
+                                .arguments
+                                ?.getString("pendingWaiterId")
+
+                        val pendingWaiterId =
+                            pendingWaiterIdString
+                                ?.takeIf { it.isNotBlank() && it != "null" }
+                                ?.let { rawWaiterId ->
+                                    try {
+                                        UUID.fromString(rawWaiterId)
+                                    } catch (e: Exception) {
+                                        UUID.nameUUIDFromBytes(rawWaiterId.toByteArray())
+                                    }
+                                }
+
                         OrderAddScreen(
                             navController = navController,
                             tableId = tableId,
-                            orderId = orderId
+                            orderId = orderId,
+                            pendingWaiterId = pendingWaiterId
                         )
                     }
 
@@ -288,10 +322,16 @@ class MainActivity : ComponentActivity() {
         val db = AppDatabase.getDatabase(applicationContext)
         val tokenManager = TokenManager(applicationContext)
         val syncRepository = SyncRepository(db, applicationContext)
+        val notificationHelper = WaiterAssignmentNotificationHelper(
+            context = applicationContext,
+            tokenManager = tokenManager,
+            database = db
+        )
         val realtimeClient = RealtimeSyncClient(
             tokenManager = tokenManager,
             syncRepository = syncRepository,
-            scope = lifecycleScope
+            scope = lifecycleScope,
+            waiterNotificationHelper = notificationHelper
         )
         realtimeSyncClient = realtimeClient
 
@@ -369,6 +409,23 @@ class MainActivity : ComponentActivity() {
 
     private fun decodeNavArgument(value: String): String {
         return Uri.decode(value).replace("+", " ")
+    }
+
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+
+        val granted = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (!granted) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                NOTIFICATION_PERMISSION_REQUEST_CODE
+            )
+        }
     }
 
     private suspend fun reauthenticateOfflineSession(

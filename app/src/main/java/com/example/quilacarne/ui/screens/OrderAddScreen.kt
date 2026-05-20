@@ -42,10 +42,12 @@ import java.util.Locale
 import java.util.UUID
 
 @Composable
+@Suppress("LongMethod", "FunctionName")
 fun OrderAddScreen(
     navController: NavController,
     tableId: UUID,
     orderId: UUID,
+    pendingWaiterId: UUID? = null,
     viewModel: OrderAddViewModel = viewModel()
 ) {
     val table by viewModel.table.collectAsState()
@@ -54,12 +56,15 @@ fun OrderAddScreen(
     val selectedCategoryId by viewModel.selectedCategoryId.collectAsState()
     val pendingItems by viewModel.pendingItems.collectAsState()
     val hasPendingChanges by viewModel.hasPendingChanges.collectAsState()
+    val pendingWaiterToAssign by viewModel.pendingWaiterId.collectAsState()
+    val pendingWaiterName by viewModel.pendingWaiterName.collectAsState()
     val language = rememberAppLanguage()
     var searchQuery by remember { mutableStateOf("") }
     var isSaving by remember { mutableStateOf(false) }
+    var saveError by remember(orderId) { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(tableId, orderId) {
-        viewModel.load(tableId, orderId)
+    LaunchedEffect(tableId, orderId, pendingWaiterId) {
+        viewModel.load(tableId, orderId, pendingWaiterId)
     }
 
     val filteredDishes = remember(dishes, searchQuery) {
@@ -143,14 +148,28 @@ fun OrderAddScreen(
             }
 
             item {
-                SaveChangesButton(
-                    enabled = hasPendingChanges && !isSaving,
+                orderSaveSection(
+                    pendingWaiterId = pendingWaiterToAssign,
+                    pendingWaiterName = pendingWaiterName,
+                    hasPendingChanges = hasPendingChanges,
                     isSaving = isSaving,
-                    modifier = Modifier.fillMaxWidth().height(52.dp),
-                    onClick = {
+                    saveError = saveError,
+                    language = language,
+                    onSave = {
                         isSaving = true
-                        viewModel.saveChanges {
+                        saveError = null
+                        viewModel.saveChanges { success, message ->
                             isSaving = false
+                            if (success) {
+                                if (pendingWaiterId != null) {
+                                    navController.popBackStack("tables", inclusive = false)
+                                }
+                            } else {
+                                saveError = message ?: language.choose(
+                                    "Nie udalo sie zapisac zamowienia.",
+                                    "Could not save the order."
+                                )
+                            }
                         }
                     }
                 )
@@ -282,6 +301,53 @@ private fun CurrentOrderCard(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun orderSaveSection(
+    pendingWaiterId: UUID?,
+    pendingWaiterName: String?,
+    hasPendingChanges: Boolean,
+    isSaving: Boolean,
+    saveError: String?,
+    language: AppLanguage,
+    onSave: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (pendingWaiterId != null) {
+            Text(
+                text = pendingWaiterName?.let { waiterName ->
+                    language.choose(
+                        "Kelner zostanie przypisany po zapisaniu: $waiterName",
+                        "Waiter will be assigned after saving: $waiterName"
+                    )
+                } ?: language.choose(
+                    "Kelner zostanie przypisany po zapisaniu",
+                    "Waiter will be assigned after saving"
+                ),
+                color = Color.DarkGray,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+
+        SaveChangesButton(
+            enabled = (hasPendingChanges || pendingWaiterId != null) && !isSaving,
+            isSaving = isSaving,
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+            onClick = onSave
+        )
+
+        saveError?.let { message ->
+            Text(
+                text = message,
+                color = Color.Red,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 }
