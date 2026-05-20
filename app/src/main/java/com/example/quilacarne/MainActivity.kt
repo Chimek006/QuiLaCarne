@@ -1,18 +1,17 @@
 package com.example.quilacarne
 
-import android.Manifest
-import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.navigation.NavController
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -22,43 +21,37 @@ import androidx.navigation.navArgument
 import com.example.quilacarne.data.local.AppDatabase
 import com.example.quilacarne.data.local.TokenManager
 import com.example.quilacarne.data.remote.dto.LoginRequest
-import com.example.quilacarne.data.remote.network.DishReadyNotificationHelper
 import com.example.quilacarne.data.remote.network.NetworkMonitor
-import com.example.quilacarne.data.remote.network.RealtimeSyncClient
+import com.example.quilacarne.data.remote.network.OperationalSyncCoordinator
 import com.example.quilacarne.data.remote.network.RetrofitClient
-import com.example.quilacarne.data.remote.network.WaiterAssignmentNotificationHelper
 import com.example.quilacarne.data.repository.SyncRepository
 import com.example.quilacarne.ui.i18n.AppLanguageStore
 import com.example.quilacarne.ui.screens.*
 import com.example.quilacarne.ui.theme.QuiLaCarneTheme
 import com.example.quilacarne.ui.viewmodels.TablesViewModel
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
 import java.util.UUID
 import kotlin.concurrent.thread
 
 class MainActivity : ComponentActivity() {
 
-    private var realtimeSyncClient: RealtimeSyncClient? = null
+    private var operationalSyncCoordinator: OperationalSyncCoordinator? = null
 
     companion object {
         lateinit var networkMonitor: NetworkMonitor
-        private const val CONNECTION_CHECK_INTERVAL_MS = 15_000L
-        private const val FALLBACK_POLL_INTERVAL_MS = 30_000L
-        private const val NOTIFICATION_PERMISSION_REQUEST_CODE = 101
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
 
         super.onCreate(savedInstanceState)
-        requestNotificationPermissionIfNeeded()
 
         networkMonitor =
             NetworkMonitor(applicationContext)
 
         RetrofitClient.init(applicationContext)
         AppLanguageStore.init(applicationContext)
-        startConnectionWatcher()
+        startOperationalSyncCoordinator()
 
         thread {
 
@@ -91,6 +84,20 @@ class MainActivity : ComponentActivity() {
 
                 val navController =
                     rememberNavController()
+
+                DisposableEffect(navController) {
+                    val listener = NavController.OnDestinationChangedListener { _, destination, _ ->
+                        operationalSyncCoordinator?.onRouteChanged(destination.route)
+                    }
+
+                    navController.addOnDestinationChangedListener(listener)
+                    operationalSyncCoordinator?.onRouteChanged(navController.currentDestination?.route)
+
+                    onDispose {
+                        navController.removeOnDestinationChangedListener(listener)
+                        operationalSyncCoordinator?.onRouteChanged(null)
+                    }
+                }
 
                 NavHost(
                     navController = navController,
@@ -314,89 +321,50 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        realtimeSyncClient?.shutdown()
-        realtimeSyncClient = null
+        operationalSyncCoordinator?.stop()
+        operationalSyncCoordinator = null
         super.onDestroy()
     }
 
-    private fun startConnectionWatcher() {
+    private fun startOperationalSyncCoordinator() {
         val db = AppDatabase.getDatabase(applicationContext)
         val tokenManager = TokenManager(applicationContext)
         val syncRepository = SyncRepository(db, applicationContext)
-        val notificationHelper = WaiterAssignmentNotificationHelper(
-            context = applicationContext,
-            tokenManager = tokenManager,
-            database = db
-        )
-        val dishReadyNotificationHelper = DishReadyNotificationHelper(applicationContext)
-        val realtimeClient = RealtimeSyncClient(
-            tokenManager = tokenManager,
-            syncRepository = syncRepository,
+
+        val coordinator = OperationalSyncCoordinator(
             scope = lifecycleScope,
-            waiterNotificationHelper = notificationHelper,
-            dishReadyNotificationHelper = dishReadyNotificationHelper
+            refreshNetwork = { networkMonitor.refresh() },
+            isOnline = { networkMonitor.isOnline.value },
+            isServerAvailable = { networkMonitor.isServerAvailable.value },
+            updateServerAvailability = { isAvailable ->
+                networkMonitor.updateServerAvailability(isAvailable)
+            },
+            hasActiveSession = { !tokenManager.getAccessToken().isNullOrBlank() },
+            isBootstrapped = { tokenManager.isBootstrapped() },
+            isServerReachable = { isServerReachable() },
+            reauthenticateOfflineSession = {
+                reauthenticateOfflineSession(db, tokenManager)
+            },
+            syncAllLocalData = {
+                syncRepository.syncAllLocalData(clearBeforeSync = false)
+            },
+            syncOperationalData = { reason ->
+                syncRepository.syncOperationalData(reason)
+            },
+            syncMenu = { _ ->
+                syncRepository.syncMenu()
+            }
         )
-        realtimeSyncClient = realtimeClient
+        operationalSyncCoordinator = coordinator
 
         lifecycleScope.launch {
-            var wasServerAvailable = false
-            var lastFallbackPollAt = 0L
-
-            while (true) {
-                networkMonitor.refresh()
-
-                val serverAvailable = if (networkMonitor.isOnline.value) {
-                    isServerReachable()
-                } else {
-                    false
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                coordinator.start()
+                try {
+                    awaitCancellation()
+                } finally {
+                    coordinator.pause()
                 }
-
-                networkMonitor.updateServerAvailability(serverAvailable)
-
-                val hasActiveSession = !tokenManager.getAccessToken().isNullOrBlank()
-                if (serverAvailable && hasActiveSession) {
-                    realtimeClient.start()
-                } else {
-                    realtimeClient.stop()
-                }
-
-                val shouldSync = serverAvailable &&
-                    !wasServerAvailable &&
-                    tokenManager.isBootstrapped() &&
-                    hasActiveSession
-
-                if (shouldSync) {
-                    runCatching {
-                        reauthenticateOfflineSession(db, tokenManager)
-                        syncRepository.syncAllLocalData(clearBeforeSync = false).getOrThrow()
-                        lastFallbackPollAt = System.currentTimeMillis()
-                    }.onFailure { error ->
-                        Log.e("CONNECTION_SYNC", "Background sync failed: ${error.message}")
-                    }
-                }
-
-                val nowMillis = System.currentTimeMillis()
-                val shouldFallbackPoll = serverAvailable &&
-                    hasActiveSession &&
-                    tokenManager.isBootstrapped() &&
-                    (!realtimeClient.isConfigured() || !realtimeClient.isConnected()) &&
-                    nowMillis - lastFallbackPollAt >= FALLBACK_POLL_INTERVAL_MS
-
-                if (shouldFallbackPoll) {
-                    lastFallbackPollAt = nowMillis
-                    Log.d(
-                        "CENTRAL_SYNC",
-                        "Fallback polling sync started websocketConfigured=${realtimeClient.isConfigured()} " +
-                            "websocketConnected=${realtimeClient.isConnected()}"
-                    )
-                    syncRepository.syncOperationalData("central-fallback-polling")
-                        .onFailure { error ->
-                            Log.w("CENTRAL_SYNC", "Fallback polling sync failed: ${error.message}")
-                        }
-                }
-
-                wasServerAvailable = serverAvailable
-                delay(CONNECTION_CHECK_INTERVAL_MS)
             }
         }
     }
@@ -412,23 +380,6 @@ class MainActivity : ComponentActivity() {
 
     private fun decodeNavArgument(value: String): String {
         return Uri.decode(value).replace("+", " ")
-    }
-
-    private fun requestNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
-
-        val granted = ContextCompat.checkSelfPermission(
-            this,
-            Manifest.permission.POST_NOTIFICATIONS
-        ) == PackageManager.PERMISSION_GRANTED
-
-        if (!granted) {
-            ActivityCompat.requestPermissions(
-                this,
-                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-                NOTIFICATION_PERMISSION_REQUEST_CODE
-            )
-        }
     }
 
     private suspend fun reauthenticateOfflineSession(

@@ -22,7 +22,7 @@ Najważniejsze obszary działania:
 - obsługa zamówień i pozycji zamówień,
 - podgląd menu, składników i alergenów,
 - zgłaszanie problematycznych klientów,
-- powiadomienia o ważnych zmianach.
+- odświeżanie aktywnych ekranów przez synchronizację REST.
 
 ## 3. Technologie
 
@@ -101,6 +101,8 @@ Synchronizowane są między innymi:
 - zamówienia,
 - pozycje zamówień.
 
+Publiczna dokumentacja API nie opisuje kanału WebSocket, STOMP ani SSE. Aplikacja nie tworzy więc sztucznego klienta WebSocket; aktualność danych zapewnia synchronizacja REST po zalogowaniu, po wejściu w ekrany operacyjne, po akcjach zmieniających stan oraz polling z bezpiecznym interwałem wyłącznie na aktywnych ekranach.
+
 Aplikacja korzysta z tokenów/identyfikatorów z API i mapuje je na stabilne UUID po stronie lokalnej. Pozwala to utrzymywać spójność między danymi lokalnymi i zdalnymi.
 
 Przykładowy mechanizm:
@@ -143,21 +145,11 @@ Dane z API są identyfikowane tokenami. W aplikacji tokeny są zamieniane na sta
 
 Mechanizm ten zmniejsza ryzyko duplikowania rekordów i pozwala zachować relacje między encjami, na przykład między stolikiem, rezerwacją, zamówieniem i pozycjami zamówienia.
 
-### 7.5. Powiadomienia
-
-Aplikacja wykorzystuje uprawnienie `POST_NOTIFICATIONS`, aby informować kelnera o ważnych zdarzeniach. W projekcie znajdują się helpery odpowiedzialne między innymi za powiadomienia o przypisaniu kelnera i gotowości dań.
-
-Powiadomienia poprawiają pracę kelnera, ponieważ nie wymuszają ciągłego ręcznego odświeżania ekranów.
-
-### 7.6. HTTPS
+### 7.5. HTTPS
 
 Aplikacja wymusza bezpieczny adres API w buildach release. Jeżeli build nie jest debugowy, `BASE_URL` musi zaczynać się od `https://`.
 
 Dodatkowo w manifeście ustawiono `android:usesCleartextTraffic="false"`, co blokuje zwykły nieszyfrowany ruch HTTP.
-
-### 7.7. Komunikacja real-time
-
-Komunikacja real-time przez WebSocket jest obecnie w trakcie tworzenia i dopracowywania. Z tego powodu nie jest opisywana jako ukończony element zabezpieczeń w finalnej dokumentacji.
 
 ## 8. Architektura aplikacji
 
@@ -322,14 +314,12 @@ Przykład:
 
 ```properties
 BASE_URL=https://api.quilacarne.com.pl/api/
-WEBSOCKET_URL=
 ```
 
 W Gradle wartości te są przepisywane do `BuildConfig`:
 
 ```kotlin
 buildConfigField("String", "BASE_URL", "\"$baseUrl\"")
-buildConfigField("String", "WEBSOCKET_URL", "\"$webSocketUrl\"")
 ```
 
 Jeżeli `BASE_URL` nie zostanie podany, aplikacja używa domyślnego adresu API.

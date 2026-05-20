@@ -18,7 +18,6 @@ if (localPropertiesFile.exists()) {
     localProperties.load(localPropertiesFile.inputStream())
 }
 val baseUrl = localProperties.getProperty("BASE_URL") ?: "https://api.quilacarne.com.pl/api/"
-val webSocketUrl = localProperties.getProperty("WEBSOCKET_URL") ?: ""
 
 android {
     namespace = "com.example.quilacarne"
@@ -34,7 +33,6 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         buildConfigField("String", "BASE_URL", "\"$baseUrl\"")
-        buildConfigField("String", "WEBSOCKET_URL", "\"$webSocketUrl\"")
     }
 
     buildTypes {

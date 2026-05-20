@@ -13,7 +13,6 @@ QuiLaCarne to natywna aplikacja Android przygotowana dla kelnerów restauracji. 
 - dodawanie i usuwanie dań z rezerwacji,
 - podgląd menu, składników i alergenów,
 - zgłaszanie problematycznego klienta,
-- powiadomienia systemowe o istotnych zmianach, między innymi o przypisaniu kelnera i gotowości dań,
 - automatyczne odświeżanie tokenów i ponowne uwierzytelnianie sesji offline po odzyskaniu połączenia.
 
 ## Wymagania
@@ -40,6 +39,8 @@ Domyślny adres API używany przez aplikację:
 https://api.quilacarne.com.pl/api/
 ```
 
+Publiczna dokumentacja API nie udostępnia endpointu WebSocket, STOMP ani SSE. Aplikacja nie konfiguruje `WEBSOCKET_URL`; aktualne dane sali i menu pobiera przez bezpieczną synchronizację REST oraz polling tylko na aktywnych ekranach operacyjnych.
+
 ## Uruchomienie aplikacji
 
 ### 1. Klonowanie repozytorium
@@ -62,7 +63,6 @@ Przykład dla Windowsa:
 ```properties
 sdk.dir=C\:\\Users\\TWOJ_USER\\AppData\\Local\\Android\\Sdk
 BASE_URL=https://api.quilacarne.com.pl/api/
-WEBSOCKET_URL=
 ```
 
 Przykład dla Linuxa/macOS:
@@ -70,7 +70,6 @@ Przykład dla Linuxa/macOS:
 ```properties
 sdk.dir=/home/TWOJ_USER/Android/Sdk
 BASE_URL=https://api.quilacarne.com.pl/api/
-WEBSOCKET_URL=
 ```
 
 `BASE_URL` jest wymagany, jeśli chcesz wskazać konkretny adres API. Jeżeli go nie podasz, aplikacja użyje domyślnego adresu `https://api.quilacarne.com.pl/api/`.
@@ -131,4 +130,3 @@ Aplikacja korzysta z kilku mechanizmów zabezpieczających:
 1. **Szyfrowanie offline** - lokalna baza Room/SQLite jest otwierana przez SQLCipher z hasłem generowanym dla aplikacji.
 2. **Android Keystore** - hasło do bazy i tokeny są przechowywane w `EncryptedSharedPreferences`, zabezpieczonych kluczem `MasterKey` z Android Keystore.
 3. **Synchronizacja przez UUID** - aplikacja mapuje tokeny/identyfikatory z API na stabilne lokalne UUID, dzięki czemu może bezpiecznie łączyć dane lokalne z danymi z serwera.
-4. **Powiadomienia** - aplikacja używa uprawnienia `POST_NOTIFICATIONS` i lokalnych helperów powiadomień, aby informować kelnera o istotnych zmianach w pracy restauracji.
