@@ -55,6 +55,10 @@ class SyncLogicTest {
             TableStatusSyncLogic.chooseStatusToken(listOf("AVAILABLE", "CLEANING"))
         )
         assertEquals(
+            "AVAILABLE",
+            TableStatusSyncLogic.chooseStatusToken(listOf("OCCUPIED", "AVAILABLE"))
+        )
+        assertEquals(
             "CUSTOM",
             TableStatusSyncLogic.chooseStatusToken(listOf("", "CUSTOM"))
         )
@@ -171,9 +175,9 @@ class SyncLogicTest {
     }
 
     @Test
-    fun displayStatusUsesActiveOrderBeforeReservationAndRemoteAvailable() {
+    fun displayStatusTrustsRemoteAvailableOverStaleActiveOrder() {
         assertEquals(
-            "OCCUPIED",
+            "RESERVED",
             TableDisplayStatusLogic.resolveDisplayStatusToken(
                 physicalStatusToken = "AVAILABLE",
                 hasActiveOrder = true,
@@ -183,7 +187,7 @@ class SyncLogicTest {
             )
         )
         assertEquals(
-            "OCCUPIED",
+            "AVAILABLE",
             TableDisplayStatusLogic.resolveDisplayStatusToken(
                 physicalStatusToken = "AVAILABLE",
                 hasActiveOrder = true,

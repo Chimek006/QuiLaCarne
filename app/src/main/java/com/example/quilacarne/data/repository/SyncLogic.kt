@@ -32,9 +32,9 @@ internal object TableStatusSyncLogic {
     private val priority = listOf(
         "OUT_OF_SERVICE",
         "CLEANING",
+        "AVAILABLE",
         "OCCUPIED",
-        "RESERVED",
-        "AVAILABLE"
+        "RESERVED"
     )
 
     fun chooseStatusToken(tokens: List<String>): String? {
@@ -136,9 +136,10 @@ internal object TableDisplayStatusLogic {
         val physicalToken = normalizeStatusToken(physicalStatusToken)
         return when {
             physicalToken != null && physicalToken in physicalStatusPriority -> physicalToken
+            physicalToken == "AVAILABLE" -> if (hasReservation) "RESERVED" else "AVAILABLE"
             hasActiveOrder -> "OCCUPIED"
             hasReservation -> "RESERVED"
-            physicalToken == "AVAILABLE" || physicalToken == "OCCUPIED" -> "AVAILABLE"
+            physicalToken == "OCCUPIED" -> "AVAILABLE"
             physicalToken != null -> physicalToken
             else -> "AVAILABLE"
         }

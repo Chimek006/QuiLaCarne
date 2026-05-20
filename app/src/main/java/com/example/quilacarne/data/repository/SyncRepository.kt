@@ -531,12 +531,11 @@ class SyncRepository(
     }
 
     private fun TableDto.currentStatusToken(): String? {
-        return TableStatusSyncLogic.chooseStatusToken(
-            buildList {
-            statusToken?.takeIf { it.isNotBlank() }?.let { add(it) }
-            addAll(statusTokens.filter { it.isNotBlank() })
-            }
-        )
+        statusToken
+            ?.takeIf { it.isNotBlank() }
+            ?.let { return it }
+
+        return TableStatusSyncLogic.chooseStatusToken(statusTokens)
     }
 
     private fun String.toTableStatusName(): String {
