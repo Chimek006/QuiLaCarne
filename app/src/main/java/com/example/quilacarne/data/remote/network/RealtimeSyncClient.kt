@@ -22,6 +22,7 @@ class RealtimeSyncClient(
     private val syncRepository: SyncRepository,
     private val scope: CoroutineScope,
     private val waiterNotificationHelper: WaiterAssignmentNotificationHelper? = null,
+    private val dishReadyNotificationHelper: DishReadyNotificationHelper? = null,
     private val webSocketUrl: String = BuildConfig.WEBSOCKET_URL
 ) {
     private val client = OkHttpClient.Builder()
@@ -36,7 +37,9 @@ class RealtimeSyncClient(
     private var manuallyStopped = true
     private var disabledLogShown = false
     private var invalidUrlLogShown = false
+    private var authRejectedLogShown = false
     private var reconnectAttempt = 0
+    private var authRejectedToken: String? = null
 
     fun isConfigured(): Boolean {
         return webSocketUrl.isNotBlank() && isUrlAllowedForBuild()
@@ -56,9 +59,14 @@ class RealtimeSyncClient(
 
             when {
                 token.isNullOrBlank() -> stop()
+                authRejectedToken == token -> logAuthRejectedOnce()
                 webSocket != null && activeToken == token -> Unit
                 reconnectJob?.isActive == true && activeToken == token -> Unit
-                else -> connect(token)
+                else -> {
+                    authRejectedToken = null
+                    authRejectedLogShown = false
+                    connect(token)
+                }
             }
         }
     }
@@ -136,7 +144,15 @@ class RealtimeSyncClient(
                 Log.w(TAG, "WebSocket failure code=${response?.code} message=${t.message}")
                 connected.set(false)
                 this@RealtimeSyncClient.webSocket = null
-                scheduleReconnect()
+                if (response?.code in AUTH_REJECTED_CODES) {
+                    authRejectedToken = activeToken
+                    reconnectJob?.cancel()
+                    reconnectJob = null
+                    manuallyStopped = true
+                    Log.w(TAG, "WebSocket authorization rejected; waiting for refreshed access token")
+                } else {
+                    scheduleReconnect()
+                }
             }
         }
     }
@@ -162,6 +178,11 @@ class RealtimeSyncClient(
             EVENT_MENU_CHANGED -> triggerMenuSync(event.type)
             EVENT_TABLE_STATUS_CHANGED,
             EVENT_ORDER_STATUS_CHANGED -> triggerOperationalSync("event:${event.type}")
+            EVENT_ORDER_ITEM_STATUS_CHANGED,
+            EVENT_DISH_READY -> {
+                triggerOperationalSync("event:${event.type}")
+                notifyDishReady(event)
+            }
             EVENT_WAITER_ASSIGNED -> {
                 triggerOperationalSync("event:${event.type}")
                 notifyWaiterAssigned(event)
@@ -171,6 +192,10 @@ class RealtimeSyncClient(
                 triggerOperationalSync("event:${event.type}")
             }
         }
+    }
+
+    private fun notifyDishReady(event: RealtimeEvent) {
+        dishReadyNotificationHelper?.notifyIfDishReady(event)
     }
 
     private fun triggerMenuSync(reason: String) {
@@ -219,7 +244,7 @@ class RealtimeSyncClient(
     private fun logDisabledOnce() {
         if (!disabledLogShown) {
             disabledLogShown = true
-            Log.d(TAG, "WebSocket disabled because WEBSOCKET_URL is empty")
+            Log.d(TAG, "WebSocket disabled because WEBSOCKET_URL is empty. Set WEBSOCKET_URL=wss://... in local.properties")
         }
     }
 
@@ -227,6 +252,13 @@ class RealtimeSyncClient(
         if (!invalidUrlLogShown) {
             invalidUrlLogShown = true
             Log.w(TAG, "WebSocket disabled because release builds require wss://")
+        }
+    }
+
+    private fun logAuthRejectedOnce() {
+        if (!authRejectedLogShown) {
+            authRejectedLogShown = true
+            Log.w(TAG, "WebSocket not reconnecting with rejected access token")
         }
     }
 
@@ -241,5 +273,8 @@ class RealtimeSyncClient(
         const val EVENT_MENU_CHANGED = "MENU_CHANGED"
         const val EVENT_WAITER_ASSIGNED = "WAITER_ASSIGNED"
         const val EVENT_ORDER_STATUS_CHANGED = "ORDER_STATUS_CHANGED"
+        const val EVENT_ORDER_ITEM_STATUS_CHANGED = "ORDER_ITEM_STATUS_CHANGED"
+        const val EVENT_DISH_READY = "DISH_READY"
+        val AUTH_REJECTED_CODES = setOf(401, 403)
     }
 }

@@ -1463,6 +1463,7 @@ class SyncRepository(
             productId = productToken.toStableUUID(),
             quantity = quantity,
             priceAtTimeOfOrder = priceAtTimeOfOrder,
+            statusTokens = statusTokens.joinToString(","),
             note = note,
             createdAt = createdAt,
             updatedAt = updatedAt

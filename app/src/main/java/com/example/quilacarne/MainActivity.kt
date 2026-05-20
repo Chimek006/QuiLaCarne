@@ -22,6 +22,7 @@ import androidx.navigation.navArgument
 import com.example.quilacarne.data.local.AppDatabase
 import com.example.quilacarne.data.local.TokenManager
 import com.example.quilacarne.data.remote.dto.LoginRequest
+import com.example.quilacarne.data.remote.network.DishReadyNotificationHelper
 import com.example.quilacarne.data.remote.network.NetworkMonitor
 import com.example.quilacarne.data.remote.network.RealtimeSyncClient
 import com.example.quilacarne.data.remote.network.RetrofitClient
@@ -327,11 +328,13 @@ class MainActivity : ComponentActivity() {
             tokenManager = tokenManager,
             database = db
         )
+        val dishReadyNotificationHelper = DishReadyNotificationHelper(applicationContext)
         val realtimeClient = RealtimeSyncClient(
             tokenManager = tokenManager,
             syncRepository = syncRepository,
             scope = lifecycleScope,
-            waiterNotificationHelper = notificationHelper
+            waiterNotificationHelper = notificationHelper,
+            dishReadyNotificationHelper = dishReadyNotificationHelper
         )
         realtimeSyncClient = realtimeClient
 

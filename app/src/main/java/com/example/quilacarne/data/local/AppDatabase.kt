@@ -6,6 +6,8 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.quilacarne.data.local.dao.*
 import com.example.quilacarne.data.local.entities.*
 import com.example.quilacarne.utils.SecurityUtil
@@ -29,7 +31,7 @@ import net.sqlcipher.database.SupportFactory
         IngredientAllergenEntity::class,
         ReservationEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -67,11 +69,21 @@ abstract class AppDatabase : RoomDatabase() {
                     "quilacarne_db"
                 )
                     .openHelperFactory(factory)
+                    .addMigrations(MIGRATION_5_6)
                     .fallbackToDestructiveMigration()
                     .build()
 
                 INSTANCE = instance
                 instance
+            }
+        }
+
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE order_items " +
+                        "ADD COLUMN status_tokens TEXT NOT NULL DEFAULT ''"
+                )
             }
         }
     }
