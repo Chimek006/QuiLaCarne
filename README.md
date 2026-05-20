@@ -42,20 +42,20 @@ https://api.quilacarne.com.pl/api/
 
 ## Uruchomienie aplikacji
 
-### 1. Sklonuj repozytorium
+### 1. Klonowanie repozytorium
 
 ```bash
 git clone -b done https://github.com/Chimek006/QuiLaCarne.git
 cd QuiLaCarne
 ```
 
-### 2. Otwórz projekt w Android Studio
+### 2. Otwieranie projektu w Android Studio
 
-Otwórz folder projektu jako projekt Android/Gradle. Android Studio powinno automatycznie pobrać zależności i zsynchronizować Gradle.
+Należy otworzyć folder projektu jako projekt Android/Gradle. Android Studio powinno automatycznie pobrać zależności i zsynchronizować Gradle.
 
-### 3. Skonfiguruj `local.properties`
+### 3. Konfiguracja `local.properties`
 
-W głównym katalogu projektu utwórz albo uzupełnij plik `local.properties`.
+W głównym katalogu projektu należy skopiować plik `local.properties.example` i uzupełnić go o brakujące pola.
 
 Przykład dla Windowsa:
 
@@ -76,9 +76,9 @@ WEBSOCKET_URL=
 `BASE_URL` jest wymagany, jeśli chcesz wskazać konkretny adres API. Jeżeli go nie podasz, aplikacja użyje domyślnego adresu `https://api.quilacarne.com.pl/api/`.
 
 
-### 4. Uruchom aplikację
+### 4. Uruchomienie aplikacji
 
-W Android Studio wybierz konfigurację `app`, następnie uruchom projekt na emulatorze lub telefonie.
+W Android Studio należy wybrać konfigurację `app`, następnie uruchom projekt na emulatorze lub telefonie.
 
 Możesz też użyć Gradle z terminala:
 
