@@ -151,6 +151,10 @@ Aplikacja wymusza bezpieczny adres API w buildach release. Jeżeli build nie jes
 
 Dodatkowo w manifeście ustawiono `android:usesCleartextTraffic="false"`, co blokuje zwykły nieszyfrowany ruch HTTP.
 
+### 7.6. Zabezpieczenia Websocketów
+
+Aplikacja obsługuje komunikację real-time przez zabezpieczone WebSockety w modelu STOMP/SockJS. Połączenie z endpointem /ws-qlc jest inicjowane tylko dla aktywnej sesji użytkownika, a autoryzacja odbywa się przez token JWT przekazywany w nagłówku Authorization: Bearer <JWT> ramki STOMP CONNECT. Klient subskrybuje kanały /topic/..., odbiera eventy CREATED, UPDATED i DELETED, a następnie aktualizuje lokalną bazę Room, dzięki czemu widoki odświeżają się bez ręcznego pobierania danych REST po każdym zdarzeniu. REST synchronizacja pozostaje jako fallback po reconnectach i przy pełnym odświeżeniu danych.
+
 ## 8. Architektura aplikacji
 
 Projekt jest podzielony na kilka głównych warstw.
