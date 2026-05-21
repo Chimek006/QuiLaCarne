@@ -19,6 +19,9 @@ interface ReservationDao {
     @Query("SELECT * FROM reservations WHERE table_id = :tableId ORDER BY start_epoch_millis ASC")
     fun getReservationsForTableFlow(tableId: UUID): Flow<List<ReservationEntity>>
 
+    @Query("SELECT * FROM reservations WHERE id = :reservationId LIMIT 1")
+    suspend fun getReservationByIdOnce(reservationId: UUID): ReservationEntity?
+
     @Query(
         "SELECT * FROM reservations " +
             "WHERE table_id = :tableId AND is_active = 1 " +
@@ -37,6 +40,9 @@ interface ReservationDao {
 
     @Query("DELETE FROM reservations WHERE id NOT IN (:reservationIds)")
     suspend fun deleteReservationsExcept(reservationIds: List<UUID>)
+
+    @Query("DELETE FROM reservations WHERE id = :reservationId")
+    suspend fun deleteReservationById(reservationId: UUID)
 
     @Query("DELETE FROM reservations")
     suspend fun clearAll()

@@ -18,4 +18,7 @@ interface TableStatusDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(statuses: List<TableStatusEntity>)
+
+    @Query("UPDATE table_status SET deleted_at = :deletedAt, updated_at = :deletedAt WHERE id = :statusId")
+    suspend fun markStatusDeleted(statusId: UUID, deletedAt: String)
 }

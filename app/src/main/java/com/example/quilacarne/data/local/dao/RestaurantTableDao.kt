@@ -28,6 +28,9 @@ interface RestaurantTableDao {
     @Query("DELETE FROM restaurant_tables WHERE id NOT IN (:tableIds)")
     suspend fun deleteTablesExcept(tableIds: List<UUID>)
 
+    @Query("DELETE FROM restaurant_tables WHERE id = :tableId")
+    suspend fun deleteTableById(tableId: UUID)
+
     @Query("DELETE FROM restaurant_tables")
     suspend fun deleteAllTables()
 

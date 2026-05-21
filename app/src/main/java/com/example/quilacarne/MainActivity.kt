@@ -23,6 +23,8 @@ import com.example.quilacarne.data.local.TokenManager
 import com.example.quilacarne.data.remote.dto.LoginRequest
 import com.example.quilacarne.data.remote.network.NetworkMonitor
 import com.example.quilacarne.data.remote.network.OperationalSyncCoordinator
+import com.example.quilacarne.data.remote.network.RealtimeSyncCoordinator
+import com.example.quilacarne.data.remote.network.RealtimeSyncState
 import com.example.quilacarne.data.remote.network.RetrofitClient
 import com.example.quilacarne.data.repository.SyncRepository
 import com.example.quilacarne.ui.i18n.AppLanguageStore
@@ -37,6 +39,7 @@ import kotlin.concurrent.thread
 class MainActivity : ComponentActivity() {
 
     private var operationalSyncCoordinator: OperationalSyncCoordinator? = null
+    private var realtimeSyncCoordinator: RealtimeSyncCoordinator? = null
 
     companion object {
         lateinit var networkMonitor: NetworkMonitor
@@ -52,6 +55,7 @@ class MainActivity : ComponentActivity() {
         RetrofitClient.init(applicationContext)
         AppLanguageStore.init(applicationContext)
         startOperationalSyncCoordinator()
+        startRealtimeSyncCoordinator()
 
         thread {
 
@@ -321,6 +325,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        realtimeSyncCoordinator?.stop()
+        realtimeSyncCoordinator = null
         operationalSyncCoordinator?.stop()
         operationalSyncCoordinator = null
         super.onDestroy()
@@ -356,6 +362,35 @@ class MainActivity : ComponentActivity() {
             }
         )
         operationalSyncCoordinator = coordinator
+
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                coordinator.start()
+                try {
+                    awaitCancellation()
+                } finally {
+                    coordinator.pause()
+                }
+            }
+        }
+    }
+
+    private fun startRealtimeSyncCoordinator() {
+        val db = AppDatabase.getDatabase(applicationContext)
+        val tokenManager = TokenManager(applicationContext)
+        val syncRepository = SyncRepository(db, applicationContext)
+
+        val coordinator = RealtimeSyncCoordinator(
+            scope = lifecycleScope,
+            tokenManager = tokenManager,
+            syncRepository = syncRepository,
+            state = RealtimeSyncState(
+                isOnline = { networkMonitor.isOnline.value },
+                isServerAvailable = { networkMonitor.isServerAvailable.value },
+                isBootstrapped = { tokenManager.isBootstrapped() }
+            )
+        )
+        realtimeSyncCoordinator = coordinator
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {

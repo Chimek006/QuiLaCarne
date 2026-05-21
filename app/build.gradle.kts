@@ -1,6 +1,7 @@
 import io.gitlab.arturbosch.detekt.Detekt
 import io.gitlab.arturbosch.detekt.DetektCreateBaselineTask
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.net.URI
 import java.util.Properties
 
 plugins {
@@ -18,6 +19,17 @@ if (localPropertiesFile.exists()) {
     localProperties.load(localPropertiesFile.inputStream())
 }
 val baseUrl = localProperties.getProperty("BASE_URL") ?: "https://api.quilacarne.com.pl/api/"
+val websocketUrl = localProperties.getProperty("WEBSOCKET_URL") ?: defaultWebSocketUrl(baseUrl)
+
+fun defaultWebSocketUrl(apiBaseUrl: String): String {
+    return runCatching {
+        URI(apiBaseUrl).resolve("../ws-qlc").toString()
+    }.getOrDefault("https://api.quilacarne.com.pl/ws-qlc")
+}
+
+fun String.toBuildConfigLiteral(): String {
+    return replace("\\", "\\\\").replace("\"", "\\\"")
+}
 
 android {
     namespace = "com.example.quilacarne"
@@ -32,7 +44,8 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        buildConfigField("String", "BASE_URL", "\"$baseUrl\"")
+        buildConfigField("String", "BASE_URL", "\"${baseUrl.toBuildConfigLiteral()}\"")
+        buildConfigField("String", "WEBSOCKET_URL", "\"${websocketUrl.toBuildConfigLiteral()}\"")
     }
 
     buildTypes {
@@ -175,6 +188,7 @@ dependencies {
     implementation("com.squareup.retrofit2:retrofit:$retrofitVersion")
     implementation("com.squareup.retrofit2:converter-gson:$retrofitVersion")
 
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
 
     implementation("androidx.security:security-crypto:1.1.0")

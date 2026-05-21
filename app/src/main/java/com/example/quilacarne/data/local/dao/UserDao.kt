@@ -3,6 +3,7 @@ package com.example.quilacarne.data.local.dao
 import androidx.room.*
 import com.example.quilacarne.data.local.entities.UsersEntity
 import kotlinx.coroutines.flow.Flow
+import java.util.UUID
 
 @Dao
 interface UserDao {
@@ -36,6 +37,9 @@ interface UserDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertUser(user: UsersEntity)
+
+    @Query("UPDATE users SET deleted_at = :deletedAt, updated_at = :deletedAt, is_active = 0 WHERE id = :userId")
+    suspend fun markUserDeleted(userId: UUID, deletedAt: String)
 
     @Query("SELECT COUNT(*) FROM users")
     suspend fun getUsersCount(): Int

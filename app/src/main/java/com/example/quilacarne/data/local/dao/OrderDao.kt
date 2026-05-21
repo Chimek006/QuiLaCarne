@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.Flow
 import java.util.UUID
 
 @Dao
+@Suppress("TooManyFunctions")
 interface OrderDao {
     @Query("SELECT * FROM orders WHERE deleted_at IS NULL ORDER BY updated_at DESC, created_at DESC")
     fun getAllOrders(): Flow<List<OrderEntity>>
@@ -27,6 +28,9 @@ interface OrderDao {
 
     @Query("DELETE FROM orders WHERE id NOT IN (:orderIds)")
     suspend fun deleteOrdersExcept(orderIds: List<UUID>)
+
+    @Query("DELETE FROM orders WHERE id = :orderId")
+    suspend fun deleteOrderById(orderId: UUID)
 
     @Query("DELETE FROM orders")
     suspend fun clearOrders()
