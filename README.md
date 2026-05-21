@@ -130,3 +130,4 @@ Aplikacja korzysta z kilku mechanizmów zabezpieczających:
 1. **Szyfrowanie offline** - lokalna baza Room/SQLite jest otwierana przez SQLCipher z hasłem generowanym dla aplikacji.
 2. **Android Keystore** - hasło do bazy i tokeny są przechowywane w `EncryptedSharedPreferences`, zabezpieczonych kluczem `MasterKey` z Android Keystore.
 3. **Synchronizacja przez UUID** - aplikacja mapuje tokeny/identyfikatory z API na stabilne lokalne UUID, dzięki czemu może bezpiecznie łączyć dane lokalne z danymi z serwera.
+4. **Zabezpieczenia Websocketów** - aplikacja obsługuje komunikację real-time przez zabezpieczone WebSockety w modelu STOMP/SockJS.
