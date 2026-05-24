@@ -1,6 +1,11 @@
 package com.example.quilacarne.data.remote.api
 
-import com.example.quilacarne.data.remote.dto.*
+import com.example.quilacarne.data.remote.dto.response.AllergenDictionaryData
+import com.example.quilacarne.data.remote.dto.response.ApiResponse
+import com.example.quilacarne.data.remote.dto.response.CategoriesData
+import com.example.quilacarne.data.remote.dto.response.DishSyncDto
+import com.example.quilacarne.data.remote.dto.response.IngredientSyncDto
+import com.example.quilacarne.data.remote.dto.response.PaginatedList
 import retrofit2.Response
 import retrofit2.http.GET
 import retrofit2.http.Header

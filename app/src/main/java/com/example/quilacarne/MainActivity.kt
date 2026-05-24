@@ -20,13 +20,16 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.quilacarne.data.local.AppDatabase
 import com.example.quilacarne.data.local.TokenManager
-import com.example.quilacarne.data.remote.dto.LoginRequest
+import com.example.quilacarne.data.remote.dto.request.LoginRequest
 import com.example.quilacarne.data.remote.network.NetworkMonitor
+import com.example.quilacarne.data.remote.network.OperationalSyncActions
 import com.example.quilacarne.data.remote.network.OperationalSyncCoordinator
+import com.example.quilacarne.data.remote.network.OperationalSyncNetworkCallbacks
+import com.example.quilacarne.data.remote.network.OperationalSyncSessionCallbacks
 import com.example.quilacarne.data.remote.network.RealtimeSyncCoordinator
 import com.example.quilacarne.data.remote.network.RealtimeSyncState
 import com.example.quilacarne.data.remote.network.RetrofitClient
-import com.example.quilacarne.data.repository.SyncRepository
+import com.example.quilacarne.data.repository.sync.SyncRepository
 import com.example.quilacarne.ui.i18n.AppLanguageStore
 import com.example.quilacarne.ui.screens.*
 import com.example.quilacarne.ui.theme.QuiLaCarneTheme
@@ -339,27 +342,33 @@ class MainActivity : ComponentActivity() {
 
         val coordinator = OperationalSyncCoordinator(
             scope = lifecycleScope,
-            refreshNetwork = { networkMonitor.refresh() },
-            isOnline = { networkMonitor.isOnline.value },
-            isServerAvailable = { networkMonitor.isServerAvailable.value },
-            updateServerAvailability = { isAvailable ->
-                networkMonitor.updateServerAvailability(isAvailable)
-            },
-            hasActiveSession = { !tokenManager.getAccessToken().isNullOrBlank() },
-            isBootstrapped = { tokenManager.isBootstrapped() },
-            isServerReachable = { isServerReachable() },
-            reauthenticateOfflineSession = {
-                reauthenticateOfflineSession(db, tokenManager)
-            },
-            syncAllLocalData = {
-                syncRepository.syncAllLocalData(clearBeforeSync = false)
-            },
-            syncOperationalData = { reason ->
-                syncRepository.syncOperationalData(reason)
-            },
-            syncMenu = { _ ->
-                syncRepository.syncMenu()
-            }
+            network = OperationalSyncNetworkCallbacks(
+                refreshNetwork = { networkMonitor.refresh() },
+                isOnline = { networkMonitor.isOnline.value },
+                isServerAvailable = { networkMonitor.isServerAvailable.value },
+                updateServerAvailability = { isAvailable ->
+                    networkMonitor.updateServerAvailability(isAvailable)
+                },
+                isServerReachable = { isServerReachable() }
+            ),
+            session = OperationalSyncSessionCallbacks(
+                hasActiveSession = { !tokenManager.getAccessToken().isNullOrBlank() },
+                isBootstrapped = { tokenManager.isBootstrapped() },
+                reauthenticateOfflineSession = {
+                    reauthenticateOfflineSession(db, tokenManager)
+                }
+            ),
+            syncActions = OperationalSyncActions(
+                syncAllLocalData = {
+                    syncRepository.syncAllLocalData(clearBeforeSync = false)
+                },
+                syncOperationalData = { reason ->
+                    syncRepository.syncOperationalData(reason)
+                },
+                syncMenu = { _ ->
+                    syncRepository.syncMenu()
+                }
+            )
         )
         operationalSyncCoordinator = coordinator
 

@@ -8,12 +8,6 @@ import android.net.NetworkCapabilities
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
-enum class ConnectionIssue {
-    None,
-    NoInternet,
-    NoServer
-}
-
 class NetworkMonitor(context: Context) {
 
     private val connectivityManager =

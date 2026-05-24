@@ -1,6 +1,18 @@
 package com.example.quilacarne.data.remote.api
 
-import com.example.quilacarne.data.remote.dto.*
+import com.example.quilacarne.data.remote.dto.request.ReportCreateRequest
+import com.example.quilacarne.data.remote.dto.request.ReservationCreateRequest
+import com.example.quilacarne.data.remote.dto.request.ReservationDishRequest
+import com.example.quilacarne.data.remote.dto.response.ApiResponse
+import com.example.quilacarne.data.remote.dto.response.BootstrapResponse
+import com.example.quilacarne.data.remote.dto.response.DictionaryData
+import com.example.quilacarne.data.remote.dto.response.DictionaryItem
+import com.example.quilacarne.data.remote.dto.response.GuestReportSyncDto
+import com.example.quilacarne.data.remote.dto.response.OrderItemSyncDto
+import com.example.quilacarne.data.remote.dto.response.OrderSyncDto
+import com.example.quilacarne.data.remote.dto.response.PaginatedList
+import com.example.quilacarne.data.remote.dto.response.ReservationSyncDto
+import com.example.quilacarne.data.remote.dto.response.UserSyncDto
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.GET

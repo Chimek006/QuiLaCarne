@@ -3,7 +3,7 @@ package com.example.quilacarne.data.repository
 import android.util.Log
 import com.example.quilacarne.data.local.AppDatabase
 import com.example.quilacarne.data.local.entities.UsersEntity
-import com.example.quilacarne.data.remote.dto.LoginRequest
+import com.example.quilacarne.data.remote.dto.request.LoginRequest
 import com.example.quilacarne.data.remote.network.RetrofitClient
 import java.util.Locale
 import java.util.UUID

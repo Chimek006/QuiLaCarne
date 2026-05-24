@@ -1,6 +1,10 @@
 package com.example.quilacarne.data.remote.api
 
-import com.example.quilacarne.data.remote.dto.*
+import com.example.quilacarne.data.remote.dto.request.LoginRequest
+import com.example.quilacarne.data.remote.dto.request.RefreshRequest
+import com.example.quilacarne.data.remote.dto.response.ApiResponse
+import com.example.quilacarne.data.remote.dto.response.LoginData
+import com.example.quilacarne.data.remote.dto.response.TokenResponse
 import retrofit2.Call
 import retrofit2.Response
 import retrofit2.http.Body

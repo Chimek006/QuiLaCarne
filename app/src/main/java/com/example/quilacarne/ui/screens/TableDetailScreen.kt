@@ -373,6 +373,7 @@ private fun getStatusColorsByToken(token: String): Pair<Color, Color> {
 }
 
 @Composable
+@Suppress("FunctionNaming")
 fun OrderItemRow(
     name: String,
     quantity: Int,
@@ -433,6 +434,7 @@ fun PriceSummary(totalPrice: Double, language: AppLanguage) {
 }
 
 @Composable
+@Suppress("FunctionNaming")
 fun SaveChangesButton(
     enabled: Boolean,
     isSaving: Boolean,
@@ -471,6 +473,7 @@ fun SaveChangesButton(
 }
 
 @Composable
+@Suppress("FunctionNaming")
 fun ActionButtons(
     canEditOrder: Boolean,
     language: AppLanguage,
@@ -667,6 +670,7 @@ private fun buildTableStatusOptions(statuses: List<TableStatusEntity>, language:
     }
 }
 
+@Suppress("CyclomaticComplexMethod")
 private fun statusTransitionError(
     currentToken: String,
     targetToken: String,

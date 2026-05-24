@@ -2,7 +2,7 @@ package com.example.quilacarne.data.remote.network
 
 import android.util.Log
 import com.example.quilacarne.data.local.TokenManager
-import com.example.quilacarne.data.repository.SyncRepository
+import com.example.quilacarne.data.repository.sync.SyncRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay

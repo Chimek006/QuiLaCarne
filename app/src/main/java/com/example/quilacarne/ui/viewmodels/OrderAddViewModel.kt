@@ -11,7 +11,7 @@ import com.example.quilacarne.data.local.entities.DishEntity
 import com.example.quilacarne.data.local.entities.OrderItemEntity
 import com.example.quilacarne.data.local.entities.RestaurantTableEntity
 import com.example.quilacarne.data.local.relations.OrderItemWithDish
-import com.example.quilacarne.data.repository.SyncRepository
+import com.example.quilacarne.data.repository.sync.SyncRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted

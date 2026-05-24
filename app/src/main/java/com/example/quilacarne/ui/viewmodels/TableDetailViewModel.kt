@@ -23,8 +23,8 @@ import java.util.Date
 import java.util.Locale
 import java.util.UUID
 import com.example.quilacarne.data.local.AppDatabase
-import com.example.quilacarne.data.repository.SyncRepository
-import com.example.quilacarne.data.repository.TableDisplayStatusLogic
+import com.example.quilacarne.data.repository.sync.SyncRepository
+import com.example.quilacarne.data.repository.sync.TableDisplayStatusLogic
 import com.example.quilacarne.utils.ReservationTimeUtils
 
 class TableDetailViewModel(application: Application) : AndroidViewModel(application) {

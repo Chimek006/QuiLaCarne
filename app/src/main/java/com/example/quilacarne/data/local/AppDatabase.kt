@@ -29,9 +29,10 @@ import net.sqlcipher.database.SupportFactory
         GuestReportEntity::class,
         DishCompositionEntity::class,
         IngredientAllergenEntity::class,
-        ReservationEntity::class
+        ReservationEntity::class,
+        PendingRequestEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -48,6 +49,7 @@ abstract class AppDatabase : RoomDatabase() {
 
     abstract fun restaurantTableDao(): RestaurantTableDao
     abstract fun ingredientDao(): IngredientDao
+    abstract fun pendingRequestDao(): PendingRequestDao
 
     companion object {
         @Volatile
@@ -71,7 +73,7 @@ abstract class AppDatabase : RoomDatabase() {
                     "quilacarne_db"
                 )
                     .openHelperFactory(factory)
-                    .addMigrations(MIGRATION_5_6)
+                    .addMigrations(MIGRATION_5_6, MIGRATION_6_7)
                     .fallbackToDestructiveMigration()
                     .build()
 
@@ -85,6 +87,39 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL(
                     "ALTER TABLE order_items " +
                         "ADD COLUMN status_tokens TEXT NOT NULL DEFAULT ''"
+                )
+            }
+        }
+
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS pending_requests (
+                        id TEXT NOT NULL,
+                        request_id TEXT NOT NULL,
+                        method TEXT NOT NULL,
+                        path TEXT NOT NULL,
+                        query_json TEXT,
+                        body_json TEXT,
+                        status TEXT NOT NULL,
+                        created_at INTEGER NOT NULL,
+                        last_attempt_at INTEGER,
+                        attempt_count INTEGER NOT NULL,
+                        entity_type TEXT,
+                        entity_local_id TEXT,
+                        optimistic_action TEXT,
+                        PRIMARY KEY(id)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_pending_requests_request_id " +
+                        "ON pending_requests(request_id)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_pending_requests_status_created_at " +
+                        "ON pending_requests(status, created_at)"
                 )
             }
         }

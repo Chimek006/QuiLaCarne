@@ -9,9 +9,9 @@ import com.example.quilacarne.data.local.entities.RestaurantTableEntity
 import com.example.quilacarne.data.local.entities.TableStatusEntity
 import com.example.quilacarne.data.local.entities.UsersEntity
 import com.example.quilacarne.data.local.entities.isActiveForTable
-import com.example.quilacarne.data.repository.SyncRepository
-import com.example.quilacarne.data.repository.TableDisplayStatusLogic
-import com.example.quilacarne.data.repository.TableStatusSyncLogic
+import com.example.quilacarne.data.repository.sync.SyncRepository
+import com.example.quilacarne.data.repository.sync.TableDisplayStatusLogic
+import com.example.quilacarne.data.repository.sync.TableStatusSyncLogic
 import com.example.quilacarne.utils.ReservationTimeUtils
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted

@@ -4,10 +4,10 @@
     <selectionStates>
       <SelectionState runConfigName="quilacarne">
         <option name="selectionMode" value="DROPDOWN" />
-        <DropdownSelection timestamp="2026-05-20T15:37:27.763942200Z">
+        <DropdownSelection timestamp="2026-05-22T11:47:43.147790800Z">
           <Target type="DEFAULT_BOOT">
             <handle>
-              <DeviceId pluginId="PhysicalDevice" identifier="serial=27a67c0b" />
+              <DeviceId pluginId="PhysicalDevice" identifier="serial=24aeca030404" />
             </handle>
           </Target>
         </DropdownSelection>

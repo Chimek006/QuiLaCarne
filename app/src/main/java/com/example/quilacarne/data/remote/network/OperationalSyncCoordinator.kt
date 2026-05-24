@@ -7,23 +7,44 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
+data class OperationalSyncNetworkCallbacks(
+    val refreshNetwork: () -> Unit,
+    val isOnline: () -> Boolean,
+    val isServerAvailable: () -> Boolean,
+    val updateServerAvailability: (Boolean) -> Unit,
+    val isServerReachable: suspend () -> Boolean
+)
+
+data class OperationalSyncSessionCallbacks(
+    val hasActiveSession: () -> Boolean,
+    val isBootstrapped: () -> Boolean,
+    val reauthenticateOfflineSession: suspend () -> Unit
+)
+
+data class OperationalSyncActions(
+    val syncAllLocalData: suspend () -> Result<Unit>,
+    val syncOperationalData: suspend (String) -> Result<Unit>,
+    val syncMenu: suspend (String) -> Result<Unit>
+)
+
+data class OperationalSyncTiming(
+    val nowMillis: () -> Long = { System.currentTimeMillis() },
+    val delayMillis: suspend (Long) -> Unit = { delay(it) },
+    val connectionCheckIntervalMs: Long = DEFAULT_CONNECTION_CHECK_INTERVAL_MS,
+    val pollingIntervalMs: Long = DEFAULT_POLL_INTERVAL_MS
+) {
+    companion object {
+        const val DEFAULT_CONNECTION_CHECK_INTERVAL_MS = 15_000L
+        const val DEFAULT_POLL_INTERVAL_MS = 30_000L
+    }
+}
+
 class OperationalSyncCoordinator(
     private val scope: CoroutineScope,
-    private val refreshNetwork: () -> Unit,
-    private val isOnline: () -> Boolean,
-    private val isServerAvailable: () -> Boolean,
-    private val updateServerAvailability: (Boolean) -> Unit,
-    private val hasActiveSession: () -> Boolean,
-    private val isBootstrapped: () -> Boolean,
-    private val isServerReachable: suspend () -> Boolean,
-    private val reauthenticateOfflineSession: suspend () -> Unit,
-    private val syncAllLocalData: suspend () -> Result<Unit>,
-    private val syncOperationalData: suspend (String) -> Result<Unit>,
-    private val syncMenu: suspend (String) -> Result<Unit>,
-    private val nowMillis: () -> Long = { System.currentTimeMillis() },
-    private val delayMillis: suspend (Long) -> Unit = { delay(it) },
-    private val connectionCheckIntervalMs: Long = DEFAULT_CONNECTION_CHECK_INTERVAL_MS,
-    private val pollingIntervalMs: Long = DEFAULT_POLL_INTERVAL_MS
+    private val network: OperationalSyncNetworkCallbacks,
+    private val session: OperationalSyncSessionCallbacks,
+    private val syncActions: OperationalSyncActions,
+    private val timing: OperationalSyncTiming = OperationalSyncTiming()
 ) {
     private var coordinatorJob: Job? = null
     private var syncJob: Job? = null
@@ -40,7 +61,7 @@ class OperationalSyncCoordinator(
         coordinatorJob = scope.launch {
             while (isActive) {
                 tick()
-                delayMillis(connectionCheckIntervalMs)
+                timing.delayMillis(timing.connectionCheckIntervalMs)
             }
         }
 
@@ -79,10 +100,10 @@ class OperationalSyncCoordinator(
     }
 
     internal suspend fun tick() {
-        refreshNetwork()
+        network.refreshNetwork()
 
-        val serverAvailable = if (isOnline()) {
-            runCatching { isServerReachable() }
+        val serverAvailable = if (network.isOnline()) {
+            runCatching { network.isServerReachable() }
                 .getOrElse { error ->
                     Log.w(TAG, "Server reachability check failed: ${error.message}")
                     false
@@ -91,17 +112,17 @@ class OperationalSyncCoordinator(
             false
         }
 
-        updateServerAvailability(serverAvailable)
+        network.updateServerAvailability(serverAvailable)
 
-        val activeSession = hasActiveSession()
-        val bootstrapped = isBootstrapped()
+        val activeSession = session.hasActiveSession()
+        val bootstrapped = session.isBootstrapped()
         val shouldRefreshSession = serverAvailable &&
             activeSession &&
             bootstrapped &&
             (!wasServerAvailable || !hadActiveSession)
 
         if (shouldRefreshSession) {
-            lastPollAt = nowMillis()
+            lastPollAt = timing.nowMillis()
             requestFullSync("session-or-connection-restored")
         }
 
@@ -110,11 +131,13 @@ class OperationalSyncCoordinator(
             activeSession &&
             bootstrapped &&
             target != null &&
-            nowMillis() - lastPollAt >= pollingIntervalMs
+            timing.nowMillis() - lastPollAt >= timing.pollingIntervalMs
 
-        if (shouldPoll && target != null) {
-            lastPollAt = nowMillis()
-            requestTargetSync("polling-${target.key}", target)
+        if (shouldPoll) {
+            target?.let { pollingTarget ->
+                lastPollAt = timing.nowMillis()
+                requestTargetSync("polling-${pollingTarget.key}", pollingTarget)
+            }
         }
 
         wasServerAvailable = serverAvailable
@@ -134,8 +157,8 @@ class OperationalSyncCoordinator(
         syncJob = scope.launch {
             Log.d(TAG, "Full REST sync started reason=$reason")
             runCatching {
-                reauthenticateOfflineSession()
-                syncAllLocalData().getOrThrow()
+                session.reauthenticateOfflineSession()
+                syncActions.syncAllLocalData().getOrThrow()
             }.onSuccess {
                 Log.d(TAG, "Full REST sync finished reason=$reason")
             }.onFailure { error ->
@@ -160,7 +183,7 @@ class OperationalSyncCoordinator(
 
         syncJob = scope.launch {
             if (target.includeOperational) {
-                syncOperationalData("coordinator-$reason")
+                syncActions.syncOperationalData("coordinator-$reason")
                     .onSuccess {
                         Log.d(TAG, "Operational REST sync finished reason=$reason")
                     }
@@ -170,7 +193,7 @@ class OperationalSyncCoordinator(
             }
 
             if (target.includeMenu) {
-                syncMenu("coordinator-$reason")
+                syncActions.syncMenu("coordinator-$reason")
                     .onSuccess {
                         Log.d(TAG, "Menu REST sync finished reason=$reason")
                     }
@@ -182,10 +205,10 @@ class OperationalSyncCoordinator(
     }
 
     private fun canSync(): Boolean {
-        return isOnline() &&
-            isServerAvailable() &&
-            hasActiveSession() &&
-            isBootstrapped()
+        return network.isOnline() &&
+            network.isServerAvailable() &&
+            session.hasActiveSession() &&
+            session.isBootstrapped()
     }
 
     private data class OperationalSyncTarget(
@@ -233,7 +256,5 @@ class OperationalSyncCoordinator(
 
     private companion object {
         const val TAG = "OPERATIONAL_SYNC"
-        const val DEFAULT_CONNECTION_CHECK_INTERVAL_MS = 15_000L
-        const val DEFAULT_POLL_INTERVAL_MS = 30_000L
     }
 }

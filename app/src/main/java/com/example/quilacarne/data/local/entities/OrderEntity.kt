@@ -34,8 +34,6 @@ fun OrderEntity.isActiveForTable(): Boolean {
         .filter { it.isNotBlank() }
         .toSet()
 
-    if (tokens.isEmpty()) return false
-
     val inactiveTokens = setOf(
         "CANCELLED",
         "CANCELED",
@@ -46,8 +44,9 @@ fun OrderEntity.isActiveForTable(): Boolean {
         "CLOSED",
         "NO_SHOW"
     )
+    val activeTokens = setOf("IN_PROGRESS", "PENDING")
 
-    if (tokens.any { it in inactiveTokens }) return false
-
-    return tokens.any { it == "IN_PROGRESS" || it == "PENDING" }
+    return tokens.isNotEmpty() &&
+        tokens.none { it in inactiveTokens } &&
+        tokens.any { it in activeTokens }
 }

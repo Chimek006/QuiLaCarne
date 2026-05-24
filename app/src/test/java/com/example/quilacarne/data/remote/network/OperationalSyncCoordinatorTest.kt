@@ -126,36 +126,44 @@ class OperationalSyncCoordinatorTest {
 
         val coordinator = OperationalSyncCoordinator(
             scope = scope,
-            refreshNetwork = {},
-            isOnline = { online },
-            isServerAvailable = { serverAvailable },
-            updateServerAvailability = { available ->
-                serverAvailable = available
-            },
-            hasActiveSession = { activeSession },
-            isBootstrapped = { bootstrapped },
-            isServerReachable = { serverReachable },
-            reauthenticateOfflineSession = {},
-            syncAllLocalData = {
-                trackSync {
-                    Result.success(Unit)
+            network = OperationalSyncNetworkCallbacks(
+                refreshNetwork = {},
+                isOnline = { online },
+                isServerAvailable = { serverAvailable },
+                updateServerAvailability = { available ->
+                    serverAvailable = available
+                },
+                isServerReachable = { serverReachable }
+            ),
+            session = OperationalSyncSessionCallbacks(
+                hasActiveSession = { activeSession },
+                isBootstrapped = { bootstrapped },
+                reauthenticateOfflineSession = {}
+            ),
+            syncActions = OperationalSyncActions(
+                syncAllLocalData = {
+                    trackSync {
+                        Result.success(Unit)
+                    }
+                },
+                syncOperationalData = { reason ->
+                    trackSync {
+                        operationalReasons.add(reason)
+                        Result.success(Unit)
+                    }
+                },
+                syncMenu = { reason ->
+                    trackSync {
+                        menuReasons.add(reason)
+                        Result.success(Unit)
+                    }
                 }
-            },
-            syncOperationalData = { reason ->
-                trackSync {
-                    operationalReasons.add(reason)
-                    Result.success(Unit)
-                }
-            },
-            syncMenu = { reason ->
-                trackSync {
-                    menuReasons.add(reason)
-                    Result.success(Unit)
-                }
-            },
-            nowMillis = { now },
-            connectionCheckIntervalMs = 15_000L,
-            pollingIntervalMs = 30_000L
+            ),
+            timing = OperationalSyncTiming(
+                nowMillis = { now },
+                connectionCheckIntervalMs = 15_000L,
+                pollingIntervalMs = 30_000L
+            )
         )
 
         fun clearSyncCalls() {

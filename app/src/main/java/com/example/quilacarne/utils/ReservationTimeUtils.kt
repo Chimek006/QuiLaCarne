@@ -69,30 +69,28 @@ object ReservationTimeUtils {
     }
 
     private fun parseApiTimestamp(value: String): Date? {
-        runCatching { OffsetDateTime.parse(value).toInstant() }
-            .getOrNull()
-            ?.let { return Date.from(it) }
+        val instantParsers = listOf(
+            { OffsetDateTime.parse(value).toInstant() },
+            { Instant.parse(value) },
+            { LocalDateTime.parse(value).atZone(ZoneId.systemDefault()).toInstant() }
+        )
+        val parsedInstant = instantParsers.firstNotNullOfOrNull { parser ->
+            runCatching { parser() }.getOrNull()
+        }
+        val parsedDate = parsedInstant?.let { Date.from(it) }
 
-        runCatching { Instant.parse(value) }
-            .getOrNull()
-            ?.let { return Date.from(it) }
+        return parsedDate ?: parseApiTimestampWithPatterns(value)
+    }
 
-        runCatching { LocalDateTime.parse(value).atZone(ZoneId.systemDefault()).toInstant() }
-            .getOrNull()
-            ?.let { return Date.from(it) }
-
+    private fun parseApiTimestampWithPatterns(value: String): Date? {
         val patterns = listOf(
             "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
             "yyyy-MM-dd'T'HH:mm:ss'Z'"
         )
 
-        patterns.forEach { pattern ->
-            runCatching { apiTimestampFormat(pattern).parse(value) }
-                .getOrNull()
-                ?.let { return it }
+        return patterns.firstNotNullOfOrNull { pattern ->
+            runCatching { apiTimestampFormat(pattern).parse(value) }.getOrNull()
         }
-
-        return null
     }
 
     private fun apiTimestampFormat(pattern: String): SimpleDateFormat {
