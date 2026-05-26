@@ -124,6 +124,15 @@ class RealtimeSyncCoordinator(
 
         override fun onMessage(topic: String, body: String) {
             scope.launch {
+                val clearedCurrentSession = syncRepository.clearCurrentSessionForPersonnelUpdateIfNeeded(topic, body)
+                if (clearedCurrentSession) {
+                    Log.i(TAG, "Disconnecting WebSocket after current user personnel update cleared the session")
+                    client.disconnect("current-user-personnel-update")
+                    lastConnectedToken = null
+                    reconnectAttempt = 0
+                    nextConnectAt = 0L
+                }
+
                 syncRepository.applyWebSocketEvent(topic, body)
                     .onFailure { error ->
                         Log.w(TAG_EVENT, "Failed to apply event topic=$topic message=${error.message}")

@@ -17,11 +17,13 @@ import com.example.quilacarne.data.remote.dto.request.ReservationDishRequest
 import com.example.quilacarne.data.remote.dto.response.BootstrapResponse
 import com.example.quilacarne.data.remote.dto.response.ReservationSyncDto
 import com.example.quilacarne.data.remote.dto.response.TableDto
+import com.example.quilacarne.data.remote.dto.response.WebSocketEvent
 import com.example.quilacarne.data.remote.dto.response.values
 import com.example.quilacarne.data.remote.network.RemoteTokenStore
 import com.example.quilacarne.data.remote.network.RetrofitClient
 import com.example.quilacarne.utils.ReservationTimeUtils
 import com.google.gson.Gson
+import com.google.gson.JsonElement
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -43,12 +45,15 @@ class SyncRepository(
         private val operationalSyncMutex = Mutex()
         private val _isOperationalSyncRunning = MutableStateFlow(false)
         val isOperationalSyncRunning: StateFlow<Boolean> = _isOperationalSyncRunning
+        private const val PERSONNEL_UPDATES_TOPIC = "/topic/personnel/updates"
+        private val CURRENT_USER_SESSION_CLEAR_EVENT_TYPES = setOf("CREATED", "UPDATED")
     }
 
     private val dishService = RetrofitClient.dishService
     private val tableService = RetrofitClient.tableService
     private val orderService = RetrofitClient.orderService
     private val tokenStore: RemoteTokenStore? = appContext?.let { RemoteTokenStore(it) }
+    private val tokenManager: TokenManager? = appContext?.let { TokenManager(it) }
     private val gson = Gson()
     private val pendingRequestRepository: PendingRequestRepository? = appContext?.let {
         PendingRequestRepository(database.pendingRequestDao(), it, gson)
@@ -93,14 +98,25 @@ class SyncRepository(
         rawMessage: String
     ): Result<Unit> = webSocketSyncHandler.applyWebSocketEvent(topic, rawMessage)
 
+    suspend fun clearCurrentSessionForPersonnelUpdateIfNeeded(
+        topic: String,
+        rawMessage: String
+    ): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            clearCurrentSessionForMatchingPersonnelEvent(topic, rawMessage)
+        }.onFailure { error ->
+            Log.w("QLC_WS_EVENT", "Nie udalo sie sprawdzic eventu personnel: ${error.message}")
+        }.getOrDefault(false)
+    }
+
     suspend fun syncAllLocalData(clearBeforeSync: Boolean = false): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val preservedOfflineUsers = database.userDao()
                 .getAllUsersOnce()
                 .filter { it.password.isNotBlank() }
             val preservedPasswords = preservedOfflineUsers.toPreservedPasswordMap()
-            val currentUsername = appContext
-                ?.let { TokenManager(it).getCurrentUsername() }
+            val currentUsername = tokenManager
+                ?.getCurrentUsername()
                 ?.trim()
             val currentOfflineUser = currentUsername
                 ?.let { username -> preservedOfflineUsers.findByUsername(username) }
@@ -1116,5 +1132,57 @@ class SyncRepository(
                 )
             }
         }
+    }
+
+    private suspend fun clearCurrentSessionForMatchingPersonnelEvent(
+        topic: String,
+        rawMessage: String
+    ): Boolean {
+        if (topic != PERSONNEL_UPDATES_TOPIC) return false
+
+        val manager = tokenManager ?: return false
+        val store = tokenStore ?: return false
+        val event = gson.fromJson(rawMessage, WebSocketEvent::class.java) ?: return false
+        val eventType = event.eventType.normalizedEventText() ?: return false
+        val entityType = event.entityType.normalizedEventText() ?: return false
+
+        if (eventType !in CURRENT_USER_SESSION_CLEAR_EVENT_TYPES || entityType != "EMPLOYEE") {
+            return false
+        }
+
+        val eventTokens = event.candidateUserTokens()
+        if (eventTokens.isEmpty()) return false
+
+        val currentUsername = manager.getCurrentUsername().trimmedOrNull() ?: return false
+        val currentUser = database.userDao().getUserByUsername(currentUsername) ?: return false
+        val currentUserToken = store.getToken("user", currentUser.id).trimmedOrNull() ?: return false
+
+        if (eventTokens.none { it == currentUserToken }) return false
+
+        manager.clearTokens()
+        Log.i("QLC_WS_EVENT", "Wyczyszczono lokalna sesje po evencie personnel $eventType dla zalogowanego usera")
+        return true
+    }
+
+    private fun WebSocketEvent.candidateUserTokens(): Set<String> {
+        return listOfNotNull(token.trimmedOrNull(), payload.payloadToken())
+            .toSet()
+    }
+
+    private fun JsonElement?.payloadToken(): String? {
+        if (this == null || !isJsonObject) return null
+
+        val tokenElement = asJsonObject.get("token")
+        if (tokenElement == null || !tokenElement.isJsonPrimitive) return null
+
+        return tokenElement.asString.trimmedOrNull()
+    }
+
+    private fun String?.normalizedEventText(): String? {
+        return trimmedOrNull()?.uppercase(Locale.US)
+    }
+
+    private fun String?.trimmedOrNull(): String? {
+        return this?.trim()?.takeIf { it.isNotEmpty() }
     }
 }
