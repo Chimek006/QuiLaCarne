@@ -181,7 +181,7 @@ class TableDetailViewModel(application: Application) : AndroidViewModel(applicat
         onResult: (Result<Unit>) -> Unit = {}
     ) {
         viewModelScope.launch {
-            val result = syncRepository.changeTableStatusRemote(tableId, token)
+            val result = syncRepository.changeTableStatus(tableId, token)
                 .onFailure { error ->
                     Log.w("TABLE_REMOTE", "Nie udalo sie zapisac statusu stolika w API: ${error.message}")
                 }

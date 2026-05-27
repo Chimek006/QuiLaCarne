@@ -4,10 +4,10 @@
     <selectionStates>
       <SelectionState runConfigName="quilacarne">
         <option name="selectionMode" value="DROPDOWN" />
-        <DropdownSelection timestamp="2026-05-22T11:47:43.147790800Z">
+        <DropdownSelection timestamp="2026-05-27T07:30:38.780227Z">
           <Target type="DEFAULT_BOOT">
             <handle>
-              <DeviceId pluginId="PhysicalDevice" identifier="serial=24aeca030404" />
+              <DeviceId pluginId="LocalEmulator" identifier="path=C:\Users\mateu\.android\avd\Medium_Phone.avd" />
             </handle>
           </Target>
         </DropdownSelection>

@@ -873,50 +873,43 @@ class SyncRepository(
             cacheDishImage = dishImageCache::cacheDishImage
         )
     }
+    private val remoteTableStatusManager by lazy {
+        TableStatusManager(RemoteTableStatusGateway(tableService))
+    }
+    private val queuedTableStatusManager by lazy {
+        val pendingRepository = pendingRequestRepository
+            ?: error("Kolejka requestow wymaga kontekstu aplikacji")
+        TableStatusManager(QueuedTableStatusGateway(pendingRepository))
+    }
 
     suspend fun syncMenu(): Result<Unit> = menuSyncHandler.syncMenu()
-    suspend fun changeTableStatusRemote(
+    suspend fun changeTableStatus(
         tableId: UUID,
         statusToken: String
     ): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
-            enqueueTableStatusChange(tableId, statusToken)
-        }
-    }
+            val normalizedStatusToken = TableStatusChangePlan.normalizeStatusToken(statusToken)
+            val tableToken = getRemoteToken("table", tableId)
 
-    private suspend fun enqueueTableStatusChange(
-        tableId: UUID,
-        statusToken: String
-    ) {
-        val normalizedStatusToken = statusToken.uppercase(Locale.US)
-        val tableToken = getRemoteToken("table", tableId)
-        val pendingRepository = pendingRequestRepository
-            ?: error("Kolejka requestow wymaga kontekstu aplikacji")
+            applyLocalTableStatus(tableId, normalizedStatusToken)
 
-        val (path, optimisticAction) = when (normalizedStatusToken) {
-            "AVAILABLE" -> "tables/$tableToken/avalaible" to
-                PendingRequestRepository.ACTION_MARK_AVAILABLE
-            "CLEANING" -> "tables/$tableToken/clear" to
-                PendingRequestRepository.ACTION_MARK_CLEANING
-            "OUT_OF_SERVICE" -> "tables/$tableToken/out-of-services" to
-                PendingRequestRepository.ACTION_MARK_OUT_OF_SERVICE
-            else -> {
-                throw UnsupportedOperationException(
-                    "API nie udostepnia bezposredniej zmiany statusu stolika na $statusToken"
+            remoteTableStatusManager.changeStatus(
+                tableId = tableId,
+                tableToken = tableToken,
+                statusToken = normalizedStatusToken
+            ).recoverCatching { error ->
+                Log.w(
+                    "TABLE_STATUS_BRIDGE",
+                    "Bezposrednia zmiana statusu stolika nie powiodla sie; zapisuje do kolejki: ${error.message}"
                 )
-            }
+                queuedTableStatusManager.changeStatus(
+                    tableId = tableId,
+                    tableToken = tableToken,
+                    statusToken = normalizedStatusToken
+                ).getOrThrow()
+            }.getOrThrow()
         }
-
-        applyLocalTableStatus(tableId, normalizedStatusToken)
-        pendingRepository.enqueue(
-            method = PendingRequestRepository.METHOD_PATCH,
-            path = path,
-            entityType = PendingRequestRepository.ENTITY_TABLE,
-            entityLocalId = tableId.toString(),
-            optimisticAction = optimisticAction
-        )
     }
-
 
     suspend fun prepareOrderForOccupyingTable(tableId: UUID): Result<UUID> = withContext(Dispatchers.IO) {
         runCatching {
@@ -1138,30 +1131,50 @@ class SyncRepository(
         topic: String,
         rawMessage: String
     ): Boolean {
-        if (topic != PERSONNEL_UPDATES_TOPIC) return false
+        var sessionCleared = false
+        val manager = tokenManager
+        val store = tokenStore
 
-        val manager = tokenManager ?: return false
-        val store = tokenStore ?: return false
-        val event = gson.fromJson(rawMessage, WebSocketEvent::class.java) ?: return false
-        val eventType = event.eventType.normalizedEventText() ?: return false
-        val entityType = event.entityType.normalizedEventText() ?: return false
+        if (topic == PERSONNEL_UPDATES_TOPIC && manager != null && store != null) {
+            val event = gson.fromJson(rawMessage, WebSocketEvent::class.java)
 
-        if (eventType !in CURRENT_USER_SESSION_CLEAR_EVENT_TYPES || entityType != "EMPLOYEE") {
-            return false
+            if (event?.isCurrentUserSessionPersonnelEvent() == true) {
+                val currentUserToken = currentUserRemoteToken(manager, store)
+                val shouldClearSession = currentUserToken != null &&
+                    event.candidateUserTokens().contains(currentUserToken)
+
+                if (shouldClearSession) {
+                    manager.clearTokens()
+                    sessionCleared = true
+                    Log.i(
+                        "QLC_WS_EVENT",
+                        "Wyczyszczono lokalna sesje po evencie personnel " +
+                            "${event.eventType.normalizedEventText()} dla zalogowanego usera"
+                    )
+                }
+            }
         }
 
-        val eventTokens = event.candidateUserTokens()
-        if (eventTokens.isEmpty()) return false
+        return sessionCleared
+    }
 
-        val currentUsername = manager.getCurrentUsername().trimmedOrNull() ?: return false
-        val currentUser = database.userDao().getUserByUsername(currentUsername) ?: return false
-        val currentUserToken = store.getToken("user", currentUser.id).trimmedOrNull() ?: return false
+    private suspend fun currentUserRemoteToken(
+        manager: TokenManager,
+        store: RemoteTokenStore
+    ): String? {
+        val currentUsername = manager.getCurrentUsername().trimmedOrNull()
+        val currentUser = currentUsername?.let { username ->
+            database.userDao().getUserByUsername(username)
+        }
 
-        if (eventTokens.none { it == currentUserToken }) return false
+        return currentUser?.let { user -> store.getToken("user", user.id).trimmedOrNull() }
+    }
 
-        manager.clearTokens()
-        Log.i("QLC_WS_EVENT", "Wyczyszczono lokalna sesje po evencie personnel $eventType dla zalogowanego usera")
-        return true
+    private fun WebSocketEvent.isCurrentUserSessionPersonnelEvent(): Boolean {
+        val eventType = eventType.normalizedEventText()
+        val entityType = entityType.normalizedEventText()
+
+        return eventType in CURRENT_USER_SESSION_CLEAR_EVENT_TYPES && entityType == "EMPLOYEE"
     }
 
     private fun WebSocketEvent.candidateUserTokens(): Set<String> {
@@ -1170,12 +1183,13 @@ class SyncRepository(
     }
 
     private fun JsonElement?.payloadToken(): String? {
-        if (this == null || !isJsonObject) return null
+        val tokenElement = this
+            ?.takeIf { it.isJsonObject }
+            ?.asJsonObject
+            ?.get("token")
+            ?.takeIf { it.isJsonPrimitive }
 
-        val tokenElement = asJsonObject.get("token")
-        if (tokenElement == null || !tokenElement.isJsonPrimitive) return null
-
-        return tokenElement.asString.trimmedOrNull()
+        return tokenElement?.asString.trimmedOrNull()
     }
 
     private fun String?.normalizedEventText(): String? {
