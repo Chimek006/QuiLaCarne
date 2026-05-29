@@ -8,6 +8,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.util.Locale
 import java.util.TimeZone
 import java.util.UUID
 
@@ -53,6 +54,7 @@ class ReservationTimeUtilsTest {
         assertFalse(ReservationTimeUtils.isActiveStatus(listOf("ACTIVE", "CANCELLED")))
         assertFalse(ReservationTimeUtils.isActiveStatus(listOf("NO_SHOW")))
         assertFalse(ReservationTimeUtils.isActiveStatus(listOf("ABSENT")))
+        assertFalse(ReservationTimeUtils.isActiveStatus(listOf("COMPLETED")))
     }
 
     @Test
@@ -123,6 +125,48 @@ class ReservationTimeUtilsTest {
     }
 
     @Test
+    fun selectCurrentOrUpcomingSkipsCompletedReservations() {
+        val completedCurrent = reservation(
+            startMillis = 1_000L,
+            endMillis = 2_000L,
+            statusTokens = "COMPLETED"
+        )
+        val activeUpcoming = reservation(
+            startMillis = 3_000L,
+            endMillis = 4_000L,
+            statusTokens = "ACTIVE"
+        )
+
+        assertEquals(
+            activeUpcoming.id,
+            ReservationTimeUtils.selectCurrentOrUpcoming(
+                listOf(completedCurrent, activeUpcoming),
+                nowMillis = 1_500L
+            )?.id
+        )
+    }
+
+    @Test
+    fun formatDateTimeRangeReturnsLocalizedDateAndHourRange() {
+        assertEquals(
+            "27.05.2026, 18:00 - 20:00",
+            ReservationTimeUtils.formatDateTimeRange(
+                "2026-05-27T18:00:00Z",
+                "2026-05-27T20:00:00Z",
+                Locale("pl")
+            )
+        )
+        assertEquals(
+            "2026-05-27, 18:00 - 20:00",
+            ReservationTimeUtils.formatDateTimeRange(
+                "2026-05-27T18:00:00Z",
+                "2026-05-27T20:00:00Z",
+                Locale.ENGLISH
+            )
+        )
+    }
+
+    @Test
     fun statusTokensToTextJoinsWithComma() {
         assertEquals("ACTIVE,VIP", ReservationTimeUtils.statusTokensToText(listOf("ACTIVE", "VIP")))
     }
@@ -130,7 +174,8 @@ class ReservationTimeUtilsTest {
     private fun reservation(
         startMillis: Long,
         endMillis: Long,
-        isActive: Boolean = true
+        isActive: Boolean = true,
+        statusTokens: String = "ACTIVE"
     ): ReservationEntity {
         val id = UUID.randomUUID()
         return ReservationEntity(
@@ -143,7 +188,7 @@ class ReservationTimeUtilsTest {
             endTime = "end",
             startEpochMillis = startMillis,
             endEpochMillis = endMillis,
-            statusTokens = "ACTIVE",
+            statusTokens = statusTokens,
             isActive = isActive,
             createdAt = "created",
             updatedAt = "updated"

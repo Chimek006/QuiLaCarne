@@ -35,7 +35,7 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
                     accessToken = loginResult.token,
                     refreshToken = loginResult.refreshToken
                 )
-                tokenManager.setCurrentUsername(username.trim())
+                tokenManager.setCurrentUsername(loginResult.username)
                 _loginState.value = LoginState.Success(loginResult.source)
             }
 

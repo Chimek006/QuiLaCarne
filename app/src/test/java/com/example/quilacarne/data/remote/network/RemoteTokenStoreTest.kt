@@ -82,6 +82,17 @@ class RemoteTokenStoreTest {
     }
 
     @Test
+    fun localTableStatusOverrideCanBeSavedAndCleared() {
+        val tableId = UUID.randomUUID()
+
+        store.saveLocalTableStatusOverride(tableId, "cleaning")
+        assertEquals("CLEANING", store.getLocalTableStatusOverride(tableId))
+
+        store.clearLocalTableStatusOverride(tableId)
+        assertNull(store.getLocalTableStatusOverride(tableId))
+    }
+
+    @Test
     fun reservationUserTokenRoundTripIgnoresBlank() {
         store.saveReservationUserToken("reservation-token", "")
         assertNull(store.getReservationUserToken("reservation-token"))

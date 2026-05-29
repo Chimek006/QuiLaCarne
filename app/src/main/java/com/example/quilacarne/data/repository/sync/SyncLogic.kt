@@ -1,5 +1,7 @@
 package com.example.quilacarne.data.repository.sync
 
+import com.example.quilacarne.data.local.entities.OrderEntity
+import com.example.quilacarne.data.local.entities.ReservationEntity
 import com.example.quilacarne.data.remote.dto.response.ApiResponse
 import com.google.gson.JsonParser
 import java.util.Locale
@@ -65,7 +67,6 @@ internal object TableStatusSyncLogic {
         ).statusToken
     }
 
-    @Suppress("UNUSED_PARAMETER")
     fun resolveSyncedTableStatusDecision(
         remoteStatusToken: String?,
         existingStatusToken: String?,
@@ -79,17 +80,17 @@ internal object TableStatusSyncLogic {
             ?.takeIf { it.isNotBlank() }
             ?.uppercase(Locale.US)
 
-        return if (remoteToken == null) {
-            TableStatusSyncDecision(
+        if (remoteToken == null) {
+            return TableStatusSyncDecision(
                 statusToken = existingToken,
                 reason = "remote-empty-keep-local"
             )
-        } else {
-            TableStatusSyncDecision(
-                statusToken = remoteToken,
-                reason = "remote-status-accepted"
-            )
         }
+
+        return TableStatusSyncDecision(
+            statusToken = remoteToken,
+            reason = "remote-status-accepted"
+        )
     }
 
     fun tableStatusNamePl(token: String): String {
@@ -113,6 +114,7 @@ internal object TableStatusSyncLogic {
             else -> token.lowercase(Locale.US).replace('_', ' ').replaceFirstChar { it.uppercase() }
         }
     }
+
 }
 
 internal data class TableStatusSyncDecision(
@@ -123,7 +125,8 @@ internal data class TableStatusSyncDecision(
 internal object TableDisplayStatusLogic {
     private val physicalStatusPriority = setOf(
         "OUT_OF_SERVICE",
-        "CLEANING"
+        "CLEANING",
+        "OCCUPIED"
     )
 
     @Suppress("UNUSED_PARAMETER")
@@ -131,6 +134,7 @@ internal object TableDisplayStatusLogic {
         physicalStatusToken: String?,
         hasActiveOrder: Boolean,
         hasReservation: Boolean,
+        hasInProgressReservation: Boolean = false,
         previousStatusToken: String?,
         isSyncing: Boolean
     ): String {
@@ -138,9 +142,10 @@ internal object TableDisplayStatusLogic {
         return when {
             physicalToken != null && physicalToken in physicalStatusPriority -> physicalToken
             physicalToken == "AVAILABLE" -> if (hasReservation) "RESERVED" else "AVAILABLE"
+            physicalToken == "RESERVED" -> "RESERVED"
             hasActiveOrder -> "OCCUPIED"
+            hasInProgressReservation -> "OCCUPIED"
             hasReservation -> "RESERVED"
-            physicalToken == "OCCUPIED" -> "AVAILABLE"
             physicalToken != null -> physicalToken
             else -> "AVAILABLE"
         }
@@ -150,6 +155,62 @@ internal object TableDisplayStatusLogic {
         return token
             ?.takeIf { it.isNotBlank() }
             ?.uppercase(Locale.US)
+    }
+}
+
+internal object ReservationAssignmentLogic {
+    private val alreadyAssignedErrorMarkers = listOf(
+        "already been assigned",
+        "reservation is in progress",
+        "order not found",
+        "reservation not found"
+    )
+
+    fun shouldTreatAssignFailureAsSuccess(
+        errorMessage: String?,
+        order: OrderEntity?,
+        reservation: ReservationEntity?
+    ): Boolean {
+        return isAlreadyAssignedError(errorMessage) &&
+            isAssignmentApplied(order, reservation)
+    }
+
+    fun isAlreadyAssignedError(errorMessage: String?): Boolean {
+        val normalizedMessage = errorMessage
+            ?.lowercase(Locale.US)
+            ?: return false
+
+        return alreadyAssignedErrorMarkers.any { marker ->
+            normalizedMessage.contains(marker)
+        }
+    }
+
+    fun isAssignmentApplied(
+        order: OrderEntity?,
+        reservation: ReservationEntity?
+    ): Boolean {
+        return order?.waiterId != null ||
+            hasStatus(order?.statusTokens, "IN_PROGRESS") ||
+            hasStatus(reservation?.statusTokens, "IN_PROGRESS")
+    }
+
+    private fun hasStatus(statusTokens: String?, token: String): Boolean {
+        return statusTokens
+            .orEmpty()
+            .split(',')
+            .map { it.trim().uppercase(Locale.US) }
+            .any { it == token }
+    }
+}
+
+internal object PendingTableStatusLogic {
+    fun statusTokenForAction(action: String?): String? {
+        return when (action) {
+            PendingRequestRepository.ACTION_MARK_AVAILABLE -> "AVAILABLE"
+            PendingRequestRepository.ACTION_MARK_CLEANING -> "CLEANING"
+            PendingRequestRepository.ACTION_MARK_OUT_OF_SERVICE -> "OUT_OF_SERVICE"
+            else -> null
+        }
     }
 }
 

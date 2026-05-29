@@ -16,6 +16,9 @@ interface ReservationDao {
     @Query("SELECT * FROM reservations ORDER BY start_epoch_millis ASC")
     fun getReservationsFlow(): Flow<List<ReservationEntity>>
 
+    @Query("SELECT * FROM reservations ORDER BY start_epoch_millis ASC")
+    suspend fun getAllReservationsOnce(): List<ReservationEntity>
+
     @Query("SELECT * FROM reservations WHERE table_id = :tableId ORDER BY start_epoch_millis ASC")
     fun getReservationsForTableFlow(tableId: UUID): Flow<List<ReservationEntity>>
 

@@ -30,4 +30,11 @@ interface PendingRequestDao {
 
     @Query("SELECT * FROM pending_requests WHERE status = 'PENDING' ORDER BY created_at ASC")
     fun observePendingRequests(): Flow<List<PendingRequestEntity>>
+
+    @Query(
+        "SELECT * FROM pending_requests " +
+            "WHERE status = 'PENDING' AND entity_type = :entityType " +
+            "ORDER BY created_at ASC"
+    )
+    suspend fun getPendingByEntityType(entityType: String): List<PendingRequestEntity>
 }

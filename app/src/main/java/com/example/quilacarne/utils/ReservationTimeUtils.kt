@@ -31,12 +31,14 @@ object ReservationTimeUtils {
 
     fun isCurrent(reservation: ReservationEntity, nowMillis: Long = System.currentTimeMillis()): Boolean {
         return reservation.isActive &&
+            reservation.hasActiveStatus() &&
             reservation.startEpochMillis <= nowMillis &&
             reservation.endEpochMillis > nowMillis
     }
 
     fun isUpcoming(reservation: ReservationEntity, nowMillis: Long = System.currentTimeMillis()): Boolean {
         return reservation.isActive &&
+            reservation.hasActiveStatus() &&
             reservation.startEpochMillis > nowMillis &&
             reservation.endEpochMillis > nowMillis
     }
@@ -59,6 +61,22 @@ object ReservationTimeUtils {
 
         return if (start != null && end != null) {
             "${displayTimeFormat().format(start)} - ${displayTimeFormat().format(end)}"
+        } else {
+            "$startTime - $endTime"
+        }
+    }
+
+    fun formatDateTimeRange(
+        startTime: String,
+        endTime: String,
+        locale: Locale = Locale.getDefault()
+    ): String {
+        val start = parseApiTimestamp(startTime)
+        val end = parseApiTimestamp(endTime)
+
+        return if (start != null && end != null) {
+            "${displayDateFormat(locale).format(start)}, " +
+                "${displayTimeFormat().format(start)} - ${displayTimeFormat().format(end)}"
         } else {
             "$startTime - $endTime"
         }
@@ -101,5 +119,24 @@ object ReservationTimeUtils {
 
     private fun displayTimeFormat(): SimpleDateFormat {
         return SimpleDateFormat("HH:mm", Locale.getDefault())
+    }
+
+    private fun displayDateFormat(locale: Locale): SimpleDateFormat {
+        val pattern = if (locale.language == "pl") {
+            "dd.MM.yyyy"
+        } else {
+            "yyyy-MM-dd"
+        }
+
+        return SimpleDateFormat(pattern, locale)
+    }
+
+    private fun ReservationEntity.hasActiveStatus(): Boolean {
+        return isActiveStatus(
+            statusTokens
+                .split(',')
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+        )
     }
 }

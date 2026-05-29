@@ -59,6 +59,15 @@ interface OrderDao {
     @Query("UPDATE orders SET waiter_id = :waiterId, updated_at = :updatedAt WHERE id = :orderId")
     suspend fun updateOrderWaiter(orderId: UUID, waiterId: UUID, updatedAt: String)
 
+    @Query("UPDATE orders SET waiter_id = NULL, updated_at = :updatedAt WHERE id = :orderId")
+    suspend fun clearOrderWaiter(orderId: UUID, updatedAt: String): Int
+
+    @Query(
+        "UPDATE orders SET waiter_id = NULL, updated_at = :updatedAt " +
+            "WHERE table_id = :tableId AND deleted_at IS NULL AND waiter_id IS NOT NULL"
+    )
+    suspend fun clearOrderWaitersForTable(tableId: UUID, updatedAt: String): Int
+
     @Query(
         "UPDATE orders SET table_id = :newTableId, updated_at = :updatedAt " +
             "WHERE id = :orderId AND deleted_at IS NULL"

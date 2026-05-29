@@ -138,6 +138,19 @@ class OrderDaoTest {
     }
 
     @Test
+    fun clearOrderWaitersForTableRemovesOnlyAssignedWaiter() = runTest {
+        val order = order(totalPrice = 3200)
+        db.orderDao().insertOrder(order)
+
+        val changed = db.orderDao().clearOrderWaitersForTable(tableId, "released")
+
+        val updated = db.orderDao().getActiveOrderForTableOnce(tableId)
+        assertEquals(1, changed)
+        assertEquals(null, updated?.waiterId)
+        assertEquals("released", updated?.updatedAt)
+    }
+
+    @Test
     fun insertAndUpdateOrderItems() = runTest {
         val order = order(totalPrice = 3200)
         val itemId = UUID.randomUUID()

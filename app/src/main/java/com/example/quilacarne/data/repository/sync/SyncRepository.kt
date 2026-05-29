@@ -12,6 +12,8 @@ import com.example.quilacarne.data.local.entities.RestaurantTableEntity
 import com.example.quilacarne.data.local.entities.TableStatusEntity
 import com.example.quilacarne.data.local.entities.UsersEntity
 import com.example.quilacarne.data.local.entities.isActiveForTable
+import com.example.quilacarne.data.local.entities.isInProgressForTable
+import com.example.quilacarne.data.local.entities.isOccupiedForTable
 import com.example.quilacarne.data.remote.dto.request.ReportCreateRequest
 import com.example.quilacarne.data.remote.dto.request.ReservationDishRequest
 import com.example.quilacarne.data.remote.dto.response.BootstrapResponse
@@ -34,6 +36,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import retrofit2.Response
+import java.io.IOException
 import java.util.Locale
 import java.util.UUID
 
@@ -70,6 +73,14 @@ class SyncRepository(
 
     fun getOrdersFlow(): Flow<List<OrderEntity>> {
         return database.orderDao().getAllOrders()
+    }
+
+    fun getOrderReservationToken(orderId: UUID): String? {
+        return tokenStore?.getOrderReservationToken(orderId)
+    }
+
+    fun getReservationWaiterId(reservationToken: String): UUID? {
+        return tokenStore?.getReservationWaiterId(reservationToken)
     }
 
     fun getReservationsFlow(): Flow<List<ReservationEntity>> {
@@ -188,6 +199,7 @@ class SyncRepository(
             applyUsersSnapshot(snapshot.users)
             applyReservationsSnapshot(snapshot.reservations)
             applyOrdersAndItemsSnapshot(snapshot.ordersAndItems)
+            clearWaitersForReleasedTables()
         }
     }
 
@@ -295,6 +307,7 @@ class SyncRepository(
             }
 
             if (allTablesEntities.isNotEmpty()) {
+                val protectedTables = protectTablesWithPendingStatus(allTablesEntities)
                 database.withTransaction {
                     val knownStatusTokens = database.tableStatusDao()
                         .getAllStatusesOnce()
@@ -318,8 +331,9 @@ class SyncRepository(
                         database.tableStatusDao().insertAll(fallbackStatuses)
                     }
 
-                    dao.insertTables(allTablesEntities)
-                    dao.deleteTablesExcept(allTablesEntities.map { it.id })
+                    dao.insertTables(protectedTables)
+                    dao.deleteTablesExcept(protectedTables.map { it.id })
+                    clearWaitersForReleasedTables()
                 }
                 Log.d("SYNC", "Zapisano ${allTablesEntities.size} stolików do bazy")
             } else {
@@ -505,17 +519,57 @@ class SyncRepository(
     }
 
     private suspend fun applyTablesSnapshot(snapshot: TablesSyncSnapshot) {
-        if (snapshot.statuses.isNotEmpty()) {
-            database.tableStatusDao().insertAll(snapshot.statuses)
+        val protectedTables = protectTablesWithPendingStatus(snapshot.tables)
+        val pendingStatusTokens = protectedTables
+            .mapNotNull { table -> table.statusId }
+            .filter { statusId -> snapshot.statuses.none { it.id == statusId } }
+            .mapNotNull { statusId ->
+                database.tableStatusDao().getStatusByIdOnce(statusId)
+            }
+        val statuses = (snapshot.statuses + pendingStatusTokens).distinctBy { it.id }
+
+        if (statuses.isNotEmpty()) {
+            database.tableStatusDao().insertAll(statuses)
         }
 
-        if (snapshot.tables.isNotEmpty()) {
-            database.restaurantTableDao().insertTables(snapshot.tables)
-            database.restaurantTableDao().deleteTablesExcept(snapshot.tables.map { it.id })
-            Log.d("SYNC", "Zapisano ${snapshot.tables.size} stolikow do bazy")
+        if (protectedTables.isNotEmpty()) {
+            database.restaurantTableDao().insertTables(protectedTables)
+            database.restaurantTableDao().deleteTablesExcept(protectedTables.map { it.id })
+            Log.d("SYNC", "Zapisano ${protectedTables.size} stolikow do bazy")
         } else {
             Log.w("SYNC", "UWAGA: Brak stolikow z API!")
         }
+    }
+
+    private suspend fun protectTablesWithPendingStatus(
+        tables: List<RestaurantTableEntity>
+    ): List<RestaurantTableEntity> {
+        val pendingStatusByTableId = pendingTableStatusTokensByTableId()
+        if (pendingStatusByTableId.isEmpty()) return tables
+
+        return tables.map { table ->
+            pendingStatusByTableId[table.id]
+                ?.let { statusToken ->
+                    table.copy(statusId = statusToken.toStableUUID())
+                }
+                ?: table
+        }
+    }
+
+    private suspend fun pendingTableStatusTokensByTableId(): Map<UUID, String> {
+        val pendingStatuses = database.pendingRequestDao()
+            .getPendingByEntityType(PendingRequestRepository.ENTITY_TABLE)
+            .mapNotNull { pending ->
+                val tableId = pending.entityLocalId
+                    ?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+                    ?: return@mapNotNull null
+                val statusToken = PendingTableStatusLogic.statusTokenForAction(pending.optimisticAction)
+                    ?: return@mapNotNull null
+
+                tableId to statusToken
+            }
+            .toMap()
+        return pendingStatuses
     }
 
     private fun persistTableSnapshotTokens(snapshot: TablesSyncSnapshot) {
@@ -606,11 +660,14 @@ class SyncRepository(
     }
 
     private suspend fun applyOrdersAndItemsSnapshot(snapshot: OrdersAndItemsSyncSnapshot) {
-        if (snapshot.orders.isEmpty()) {
+        val preservedLocalOrders = localReservationOrdersToPreserve(snapshot)
+        val ordersToKeep = snapshot.orders + preservedLocalOrders
+
+        if (ordersToKeep.isEmpty()) {
             database.orderDao().clearOrders()
         } else {
-            database.orderDao().insertOrders(snapshot.orders)
-            database.orderDao().deleteOrdersExcept(snapshot.orders.map { it.id })
+            database.orderDao().insertOrders(ordersToKeep)
+            database.orderDao().deleteOrdersExcept(ordersToKeep.map { it.id })
         }
 
         if (snapshot.orderItems.isEmpty()) {
@@ -619,6 +676,61 @@ class SyncRepository(
             database.orderDao().insertOrderItems(snapshot.orderItems)
             database.orderDao().deleteOrderItemsExcept(snapshot.orderItems.map { it.id })
         }
+    }
+
+    private suspend fun localReservationOrdersToPreserve(
+        snapshot: OrdersAndItemsSyncSnapshot
+    ): List<OrderEntity> {
+        val remoteReservationTokens = snapshot.orderTokens
+            .mapNotNull { it.reservationToken }
+            .toSet()
+
+        return database.orderDao()
+            .getAllOrdersOnce()
+            .filter { order ->
+                val reservationToken = tokenStore?.getOrderReservationToken(order.id)
+                val hasRemoteOrderForReservation = reservationToken != null &&
+                    reservationToken in remoteReservationTokens
+                val isLocalOnlyOrder = tokenStore?.getToken("order", order.id).isNullOrBlank()
+                val reservation = reservationToken
+                    ?.let { token -> database.reservationDao().getReservationByIdOnce(token.toStableUUID()) }
+
+                isLocalOnlyOrder &&
+                    !hasRemoteOrderForReservation &&
+                    order.isActiveForTable() &&
+                    order.waiterId != null &&
+                    reservation?.isInProgressForTable() == true
+            }
+    }
+
+    private suspend fun clearWaitersForReleasedTables() {
+        val releasedStatuses = setOf("AVAILABLE", "CLEANING", "OUT_OF_SERVICE")
+        val now = getCurrentTimestamp()
+        database.restaurantTableDao()
+            .getAllTablesOnce()
+            .forEach { table ->
+                val statusToken = table.statusId
+                    ?.let { statusId -> database.tableStatusDao().getStatusByIdOnce(statusId)?.token }
+                    ?.uppercase(Locale.US)
+
+                if (statusToken in releasedStatuses) {
+                    database.orderDao().clearOrderWaitersForTable(table.id, now)
+                    clearReservationWaitersForTable(table.id)
+                    tokenStore?.clearLocalTableStatusOverride(table.id)
+                }
+            }
+    }
+
+    private suspend fun clearWaitersForTable(tableId: UUID) {
+        database.orderDao().clearOrderWaitersForTable(tableId, getCurrentTimestamp())
+        clearReservationWaitersForTable(tableId)
+    }
+
+    private suspend fun clearReservationWaitersForTable(tableId: UUID) {
+        database.reservationDao()
+            .getAllReservationsOnce()
+            .filter { reservation -> reservation.tableId == tableId }
+            .forEach { reservation -> tokenStore?.clearReservationWaiterId(reservation.token) }
     }
 
     private fun persistOrderSnapshotTokens(snapshot: OrdersAndItemsSyncSnapshot) {
@@ -880,34 +992,228 @@ class SyncRepository(
         statusToken: String
     ): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
-            enqueueTableStatusChange(tableId, statusToken)
+            changeTableStatus(tableId, statusToken)
         }
     }
 
-    private suspend fun enqueueTableStatusChange(
+    private suspend fun changeTableStatus(
         tableId: UUID,
         statusToken: String
     ) {
         val normalizedStatusToken = statusToken.uppercase(Locale.US)
         val tableToken = getRemoteToken("table", tableId)
-        val pendingRepository = pendingRequestRepository
-            ?: error("Kolejka requestow wymaga kontekstu aplikacji")
+        val completionReservationToken = if (normalizedStatusToken == "CLEANING") {
+            findReservationTokenForCompletingTable(tableId)
+        } else {
+            null
+        }
+        val (path, optimisticAction) = tableStatusPathAndAction(
+            tableToken = tableToken,
+            statusToken = normalizedStatusToken,
+            completionReservationToken = completionReservationToken
+        )
 
-        val (path, optimisticAction) = when (normalizedStatusToken) {
-            "AVAILABLE" -> "tables/$tableToken/avalaible" to
-                PendingRequestRepository.ACTION_MARK_AVAILABLE
-            "CLEANING" -> "tables/$tableToken/clear" to
-                PendingRequestRepository.ACTION_MARK_CLEANING
-            "OUT_OF_SERVICE" -> "tables/$tableToken/out-of-services" to
-                PendingRequestRepository.ACTION_MARK_OUT_OF_SERVICE
-            else -> {
-                throw UnsupportedOperationException(
-                    "API nie udostepnia bezposredniej zmiany statusu stolika na $statusToken"
-                )
+        val remoteResult = sendTableStatusChangeToApi(
+            tableToken = tableToken,
+            statusToken = normalizedStatusToken,
+            completionReservationToken = completionReservationToken
+        )
+        if (remoteResult.isSuccess) {
+            syncOperationalData("table-status-$normalizedStatusToken")
+                .onFailure { error ->
+                    Log.w(
+                        "TABLE_REMOTE",
+                        "Status stolika zapisany w API, ale synchronizacja po zapisie nie powiodla sie: ${error.message}"
+                    )
+                }
+            applyLocalTableStatus(tableId, normalizedStatusToken)
+            clearWaitersForTable(tableId)
+            return
+        }
+
+        val error = remoteResult.exceptionOrNull()
+        if (error !is IOException) {
+            syncOperationalData("table-status-rejected")
+                .onFailure { syncError ->
+                    Log.w("TABLE_REMOTE", "Synchronizacja po odrzuceniu statusu stolika nie powiodla sie: ${syncError.message}")
+                }
+            if (shouldKeepLocalAvailableAfterRemoteRejection(normalizedStatusToken, error)) {
+                clearWaitersForTable(tableId)
+                applyLocalTableStatus(tableId, "AVAILABLE")
+                return
             }
+            throw error ?: IllegalStateException("Nie udalo sie zapisac statusu stolika w API")
         }
 
         applyLocalTableStatus(tableId, normalizedStatusToken)
+        clearWaitersForTable(tableId)
+        enqueueTableStatusChange(tableId, path, optimisticAction)
+    }
+
+    private suspend fun shouldKeepLocalCleaningAfterRemoteRejection(
+        tableId: UUID,
+        statusToken: String,
+        error: Throwable?
+    ): Boolean {
+        if (statusToken != "CLEANING") return false
+        if (hasLocallyOccupiedOrder(tableId)) return true
+
+        val message = error
+            ?.message
+            ?.normalizedApiErrorMessage()
+            ?: return false
+
+        return message.contains("wolny stolik nie wymaga sprzatania") ||
+            message.contains("wolny stolik nie wymaga sprzątania") ||
+            message.contains("available table does not require cleaning")
+    }
+
+    private fun shouldTreatCleaningRejectedAsAlreadyReleased(
+        statusToken: String,
+        error: Throwable?
+    ): Boolean {
+        if (statusToken != "CLEANING") return false
+
+        val message = error
+            ?.message
+            ?.normalizedApiErrorMessage()
+            ?: return false
+
+        return message.contains("wolny stolik nie wymaga sprzatania") ||
+            message.contains("available table does not require cleaning")
+    }
+
+    private fun shouldKeepLocalAvailableAfterRemoteRejection(
+        statusToken: String,
+        error: Throwable?
+    ): Boolean {
+        if (statusToken != "AVAILABLE") return false
+
+        val message = error
+            ?.message
+            ?.normalizedApiErrorMessage()
+            ?: return false
+
+        return message.contains("stolik juz jest wolny") ||
+            message.contains("stolik już jest wolny") ||
+            message.contains("table is already available") ||
+            message.contains("table already available") ||
+            message.contains("already available") ||
+            message.contains("wolny stolik nie wymaga sprzatania") ||
+            message.contains("available table does not require cleaning")
+    }
+
+    private fun String.normalizedApiErrorMessage(): String {
+        return lowercase(Locale.US)
+            .replace('\u0105', 'a')
+            .replace('\u0107', 'c')
+            .replace('\u0119', 'e')
+            .replace('\u0142', 'l')
+            .replace('\u0144', 'n')
+            .replace('\u00f3', 'o')
+            .replace('\u015b', 's')
+            .replace('\u017a', 'z')
+            .replace('\u017c', 'z')
+    }
+
+    private suspend fun hasLocallyOccupiedOrder(tableId: UUID): Boolean {
+        return database.orderDao()
+            .getAllOrdersOnce()
+            .any { order -> order.tableId == tableId && order.isOccupiedForTable() }
+    }
+
+    private suspend fun findReservationTokenForCompletingTable(tableId: UUID): String? {
+        val nowMillis = System.currentTimeMillis()
+        val tableReservations = database.reservationDao()
+            .getAllReservationsOnce()
+            .filter { reservation -> reservation.tableId == tableId }
+
+        val selectedReservation = selectInProgressReservation(tableReservations, nowMillis)
+            ?: ReservationTimeUtils.selectCurrentOrUpcoming(tableReservations, nowMillis)
+            ?: return null
+
+        if (selectedReservation.isInProgressForTable()) {
+            return selectedReservation.token
+        }
+
+        return database.orderDao()
+            .getAllOrdersOnce()
+            .filter { order -> order.tableId == tableId && order.isOccupiedForTable() }
+            .firstNotNullOfOrNull { order ->
+                tokenStore
+                    ?.getOrderReservationToken(order.id)
+                    ?.takeIf { reservationToken -> reservationToken == selectedReservation.token }
+            }
+    }
+
+    private fun selectInProgressReservation(
+        reservations: List<ReservationEntity>,
+        nowMillis: Long
+    ): ReservationEntity? {
+        val inProgressReservations = reservations
+            .filter { reservation -> reservation.isActive && reservation.isInProgressForTable() }
+
+        return inProgressReservations
+            .filter { reservation ->
+                reservation.startEpochMillis <= nowMillis &&
+                    reservation.endEpochMillis > nowMillis
+            }
+            .minByOrNull { reservation -> reservation.startEpochMillis }
+            ?: inProgressReservations
+                .filter { reservation -> reservation.startEpochMillis <= nowMillis }
+                .maxByOrNull { reservation -> reservation.startEpochMillis }
+            ?: inProgressReservations.minByOrNull { reservation -> reservation.startEpochMillis }
+    }
+
+    private suspend fun sendTableStatusChangeToApi(
+        tableToken: String,
+        statusToken: String,
+        completionReservationToken: String?
+    ): Result<Unit> = runCatching {
+        val response = when (statusToken) {
+            "AVAILABLE" -> tableService.markTableAvailable(tableToken)
+            "CLEANING" -> completionReservationToken
+                ?.let { reservationToken -> orderService.completeReservation(reservationToken) }
+                ?: tableService.markTableCleaning(tableToken)
+            "OUT_OF_SERVICE" -> tableService.markTableOutOfService(tableToken)
+            else -> throw UnsupportedOperationException(
+                "API nie udostepnia bezposredniej zmiany statusu stolika na $statusToken"
+            )
+        }
+
+        response.requireApiSuccess("Nie udalo sie zapisac statusu stolika w API")
+    }
+
+    private fun tableStatusPathAndAction(
+        tableToken: String,
+        statusToken: String,
+        completionReservationToken: String?
+    ): Pair<String, String> {
+        return when (statusToken) {
+            "AVAILABLE" -> "tables/$tableToken/avalaible" to
+                PendingRequestRepository.ACTION_MARK_AVAILABLE
+            "CLEANING" -> (
+                completionReservationToken
+                    ?.let { reservationToken -> "reservations/$reservationToken/complete" }
+                    ?: "tables/$tableToken/clear"
+                ) to
+                PendingRequestRepository.ACTION_MARK_CLEANING
+            "OUT_OF_SERVICE" -> "tables/$tableToken/out-of-services" to
+                PendingRequestRepository.ACTION_MARK_OUT_OF_SERVICE
+            else -> throw UnsupportedOperationException(
+                "API nie udostepnia bezposredniej zmiany statusu stolika na $statusToken"
+            )
+        }
+    }
+
+    private suspend fun enqueueTableStatusChange(
+        tableId: UUID,
+        path: String,
+        optimisticAction: String
+    ) {
+        val pendingRepository = pendingRequestRepository
+            ?: error("Kolejka requestow wymaga kontekstu aplikacji")
+
         pendingRepository.enqueue(
             method = PendingRequestRepository.METHOD_PATCH,
             path = path,
@@ -920,7 +1226,13 @@ class SyncRepository(
 
     suspend fun prepareOrderForOccupyingTable(tableId: UUID): Result<UUID> = withContext(Dispatchers.IO) {
         runCatching {
-            syncOperationalData("prepare-occupy-order").getOrThrow()
+            syncOperationalData("prepare-occupy-order")
+                .onFailure { error ->
+                    Log.w(
+                        "OCCUPY_TABLE",
+                        "Nie udalo sie odswiezyc danych przed zajeciem stolika, uzywam lokalnej kopii: ${error.message}"
+                    )
+                }
 
             val reservationSelection = selectReservationForOccupyingTable(tableId)
                 ?: throw UnsupportedOperationException(
@@ -928,22 +1240,74 @@ class SyncRepository(
                 )
 
             findOrderIdForReservation(tableId, reservationSelection.token)
-                ?: throw IllegalStateException(
-                    "Nie znaleziono zamowienia powiazanego z rezerwacja. " +
-                        "Odswiez dane i sprobuj ponownie."
-                )
+                ?: createLocalOrderForReservation(tableId, reservationSelection.token)
         }
     }
 
     suspend fun assignWaiterToReservationForOrder(orderId: UUID): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val reservationToken = getReservationTokenForOrder(orderId)
+            val tableId = tableIdForOrderOrReservation(orderId)
 
             orderService.assignWaiterToReservation(reservationToken)
                 .requireApiSuccess("Nie udalo sie przypisac kelnera w API")
 
-            syncOperationalData("assign-waiter-on-order-save").getOrThrow()
+            syncOperationalData("assign-waiter-on-order-save")
+                .onFailure { error ->
+                    Log.w(
+                        "ORDER_REMOTE",
+                        "Przypisano kelnera w API, ale synchronizacja po zapisie nie powiodla sie: ${error.message}"
+                    )
+                }
+            tableId?.let { applyLocalTableStatus(it, "OCCUPIED") }
+            Unit
         }
+    }
+
+    suspend fun refreshAssignmentStateForOrder(
+        orderId: UUID,
+        reason: String
+    ): Result<Boolean> = withContext(Dispatchers.IO) {
+        runCatching {
+            syncOperationalData(reason)
+                .onFailure { error ->
+                    Log.w("ORDER_REMOTE", "Nie udalo sie odswiezyc stanu przypisania kelnera: ${error.message}")
+                }
+            isReservationAssignmentAppliedForOrder(orderId)
+        }
+    }
+
+    suspend fun isReservationAssignmentAppliedForOrder(orderId: UUID): Boolean = withContext(Dispatchers.IO) {
+        val order = database.orderDao()
+            .getAllOrdersOnce()
+            .firstOrNull { it.id == orderId }
+        val reservation = reservationForOrder(orderId)
+
+        ReservationAssignmentLogic.isAssignmentApplied(order, reservation)
+    }
+
+    suspend fun rememberReservationWaiterForOrder(
+        orderId: UUID,
+        waiterId: UUID
+    ) = withContext(Dispatchers.IO) {
+        tokenStore
+            ?.getOrderReservationToken(orderId)
+            ?.let { reservationToken -> tokenStore.saveReservationWaiterId(reservationToken, waiterId) }
+    }
+
+    private suspend fun reservationForOrder(orderId: UUID): ReservationEntity? {
+        val reservationToken = tokenStore?.getOrderReservationToken(orderId) ?: return null
+        return database.reservationDao().getReservationByIdOnce(reservationToken.toStableUUID())
+    }
+
+    private suspend fun tableIdForOrderOrReservation(orderId: UUID): UUID? {
+        database.orderDao()
+            .getAllOrdersOnce()
+            .firstOrNull { it.id == orderId }
+            ?.tableId
+            ?.let { return it }
+
+        return reservationForOrder(orderId)?.tableId
     }
 
     private suspend fun findOrderIdForReservation(
@@ -968,6 +1332,35 @@ class SyncRepository(
             ?: database.orderDao().getActiveOrderForTableOnce(tableId)
                 ?.takeIf { it.isActiveForTable() }
                 ?.id
+    }
+
+    private suspend fun createLocalOrderForReservation(
+        tableId: UUID,
+        reservationToken: String
+    ): UUID {
+        val orderId = "local-order-$reservationToken".toStableUUID()
+        val existingOrder = database.orderDao()
+            .getAllOrdersOnce()
+            .firstOrNull { it.id == orderId }
+
+        if (existingOrder == null) {
+            val now = getCurrentTimestamp()
+            database.orderDao().insertOrder(
+                OrderEntity(
+                    id = orderId,
+                    tableId = tableId,
+                    waiterId = null,
+                    statusId = null,
+                    statusTokens = "PENDING",
+                    totalPrice = 0,
+                    createdAt = now,
+                    updatedAt = now
+                )
+            )
+        }
+
+        tokenStore?.saveOrderReservationToken(orderId, reservationToken)
+        return orderId
     }
 
     suspend fun saveReservationItemDeltas(
@@ -1009,7 +1402,14 @@ class SyncRepository(
                     ).requireApiSuccess("Nie udalo sie usunac pozycji zamowienia w API")
                 }
 
-            syncOperationalData().getOrThrow()
+            syncOperationalData("reservation-item-deltas")
+                .onFailure { error ->
+                    Log.w(
+                        "ORDER_REMOTE",
+                        "Pozycje zamowienia zapisane w API, ale synchronizacja po zapisie nie powiodla sie: ${error.message}"
+                    )
+                }
+            Unit
         }
     }
 
@@ -1114,6 +1514,8 @@ class SyncRepository(
             )
         )
         database.restaurantTableDao().updateStatus(tableId, statusId, now)
+
+        tokenStore?.clearLocalTableStatusOverride(tableId)
     }
 
     private suspend fun restoreOfflineLoginUsers(users: List<UsersEntity>) {

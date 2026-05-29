@@ -4,6 +4,7 @@ import android.util.Log
 import com.example.quilacarne.data.local.AppDatabase
 import com.example.quilacarne.data.local.entities.UsersEntity
 import com.example.quilacarne.data.remote.dto.request.LoginRequest
+import com.example.quilacarne.data.remote.dto.response.UserProfileData
 import com.example.quilacarne.data.remote.network.RetrofitClient
 import java.util.Locale
 import java.util.UUID
@@ -21,14 +22,26 @@ class AuthRepository(private val database: AppDatabase) {
                 val data = response.body()?.data
                 if (data != null) {
                     val loginUsername = username.trim()
+                    val profile = fetchCurrentUserProfile(data.token)
                     val apiUsername = data.username.trim().takeIf { it.isNotBlank() }
+                    val profileUsername = profile.username.trim().takeIf { it.isNotBlank() }
+                    val profileRoles = profile.roles.orEmpty()
+                    val role = AuthRolePolicy.roleString(profileRoles)
                     val now = System.currentTimeMillis().toString()
-                    val localUsers = buildList {
+                    val localUsernames = buildList {
                         add(loginUsername)
                         apiUsername?.let { add(it) }
+                        profileUsername?.let { add(it) }
                     }
                         .filter { it.isNotBlank() }
                         .distinctBy { it.lowercase(Locale.US) }
+
+                    if (!AuthRolePolicy.isWaiter(profileRoles)) {
+                        markRejectedOnlineUsers(localUsernames, role, now)
+                        return Result.failure(UnsupportedUserRoleException())
+                    }
+
+                    val localUsers = localUsernames
                         .map { localUsername ->
                             val existing = userDao.getUserByUsername(localUsername)
                             UsersEntity(
@@ -36,7 +49,7 @@ class AuthRepository(private val database: AppDatabase) {
                                 username = localUsername,
                                 password = password,
                                 isActive = existing?.isActive ?: true,
-                                role = existing?.role ?: "waiter",
+                                role = role,
                                 createdAt = existing?.createdAt ?: now,
                                 updatedAt = now
                             )
@@ -48,7 +61,8 @@ class AuthRepository(private val database: AppDatabase) {
                     Result.success(
                         AuthTokens(
                             accessToken = data.token,
-                            refreshToken = data.refreshToken
+                            refreshToken = data.refreshToken,
+                            username = profileUsername ?: apiUsername ?: loginUsername
                         )
                     )
                 } else {
@@ -67,11 +81,16 @@ class AuthRepository(private val database: AppDatabase) {
         return try {
             val user = userDao.getUserByUsernameAndPassword(username.trim(), password)
             if (user != null) {
+                if (!AuthRolePolicy.isWaiter(user.role)) {
+                    return Result.failure(UnsupportedUserRoleException())
+                }
+
                 Log.d("AUTH_REPO", "✓ Zalogowano offline")
                 Result.success(
                     AuthTokens(
                         accessToken = "offline_token_${user.id}",
-                        refreshToken = "offline_refresh"
+                        refreshToken = "offline_refresh",
+                        username = user.username
                     )
                 )
             } else {
@@ -98,6 +117,10 @@ class AuthRepository(private val database: AppDatabase) {
 
         return if (onlineResult.isSuccess) {
             onlineResult.withSource(LoginSource.Online)
+        } else if (onlineResult.exceptionOrNull() is UnsupportedUserRoleException ||
+            onlineResult.exceptionOrNull() is UserProfileVerificationException
+        ) {
+            onlineResult.withSource(LoginSource.Online)
         } else {
             Log.w("AUTH_REPO", "API niedostępne, próbuję offline...")
             loginOffline(username, password)
@@ -112,6 +135,7 @@ class AuthRepository(private val database: AppDatabase) {
                     AuthLoginResult(
                         token = tokens.accessToken,
                         refreshToken = tokens.refreshToken,
+                        username = tokens.username,
                         source = source
                     )
                 )
@@ -124,5 +148,66 @@ class AuthRepository(private val database: AppDatabase) {
 
     suspend fun hasAnyLocalData(): Boolean {
         return userDao.getUsersCount() > 0
+    }
+
+    private suspend fun fetchCurrentUserProfile(accessToken: String): UserProfileData {
+        val response = RetrofitClient.authService.me("Bearer $accessToken")
+        if (response.isSuccessful && response.body()?.isSuccess == true) {
+            return response.body()?.data
+                ?: throw UserProfileVerificationException("Brak danych profilu uzytkownika")
+        }
+
+        throw UserProfileVerificationException(response.body()?.message ?: "Nie udalo sie pobrac profilu uzytkownika")
+    }
+
+    private suspend fun markRejectedOnlineUsers(
+        usernames: List<String>,
+        role: String,
+        now: String
+    ) {
+        val users = usernames.map { localUsername ->
+            val existing = userDao.getUserByUsername(localUsername)
+            UsersEntity(
+                id = existing?.id ?: UUID.randomUUID(),
+                username = localUsername,
+                password = "",
+                isActive = false,
+                role = role,
+                createdAt = existing?.createdAt ?: now,
+                updatedAt = now
+            )
+        }
+
+        if (users.isNotEmpty()) {
+            userDao.insertUsers(users)
+        }
+    }
+}
+
+class UnsupportedUserRoleException : Exception(
+    "Do aplikacji moga logowac sie tylko kelnerzy."
+)
+
+class UserProfileVerificationException(message: String) : Exception(message)
+
+internal object AuthRolePolicy {
+    fun isWaiter(roles: List<String>): Boolean {
+        return roles.any(::isWaiter)
+    }
+
+    fun isWaiter(role: String): Boolean {
+        return role
+            .split(',', ';', ' ')
+            .map { it.trim().uppercase(Locale.US) }
+            .any { token -> token == "ROLE_WAITER" || token == "WAITER" }
+    }
+
+    fun roleString(roles: List<String>): String {
+        return roles
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinctBy { it.uppercase(Locale.US) }
+            .joinToString(",")
+            .ifBlank { "UNKNOWN" }
     }
 }

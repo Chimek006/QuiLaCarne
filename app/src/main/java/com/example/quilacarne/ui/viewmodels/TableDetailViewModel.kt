@@ -10,6 +10,8 @@ import com.example.quilacarne.data.local.entities.RestaurantTableEntity
 import com.example.quilacarne.data.local.entities.TableStatusEntity
 import com.example.quilacarne.data.local.entities.UsersEntity
 import com.example.quilacarne.data.local.entities.isActiveForTable
+import com.example.quilacarne.data.local.entities.isInProgressForTable
+import com.example.quilacarne.data.local.entities.isOccupiedForTable
 import com.example.quilacarne.data.local.relations.OrderItemWithDish
 import com.example.quilacarne.data.local.TokenManager
 import kotlinx.coroutines.Job
@@ -23,6 +25,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.UUID
 import com.example.quilacarne.data.local.AppDatabase
+import com.example.quilacarne.data.remote.network.RemoteTokenStore
 import com.example.quilacarne.data.repository.sync.SyncRepository
 import com.example.quilacarne.data.repository.sync.TableDisplayStatusLogic
 import com.example.quilacarne.utils.ReservationTimeUtils
@@ -31,6 +34,7 @@ class TableDetailViewModel(application: Application) : AndroidViewModel(applicat
     private val db = AppDatabase.getDatabase(application)
     private val syncRepository = SyncRepository(db, application.applicationContext)
     private val tokenManager = TokenManager(application.applicationContext)
+    private val tokenStore = RemoteTokenStore(application.applicationContext)
 
     private val _orderItems = MutableStateFlow<List<OrderItemWithDish>>(emptyList())
     val orderItems: StateFlow<List<OrderItemWithDish>> = _orderItems
@@ -40,6 +44,9 @@ class TableDetailViewModel(application: Application) : AndroidViewModel(applicat
 
     private val _waiters = MutableStateFlow<List<UsersEntity>>(emptyList())
     val waiters: StateFlow<List<UsersEntity>> = _waiters
+
+    private val _currentWaiter = MutableStateFlow<UsersEntity?>(null)
+    val currentWaiter: StateFlow<UsersEntity?> = _currentWaiter
 
     private val _tableStatusId = MutableStateFlow<UUID?>(null)
     val tableStatusId: StateFlow<UUID?> = _tableStatusId
@@ -85,11 +92,17 @@ class TableDetailViewModel(application: Application) : AndroidViewModel(applicat
                 currentUserFlow
             ) { waiters, currentUser ->
                 val fallbackCurrentUser = currentUser?.takeIf { it.isActive }
-                waiters.ifEmpty {
+                val availableWaiters = waiters.ifEmpty {
                     listOfNotNull(fallbackCurrentUser)
                 }
-            }.collect { waiters ->
-                _waiters.value = waiters.distinctBy { it.username.trim().lowercase() }
+                availableWaiters to fallbackCurrentUser
+            }.collect { (waiters, fallbackCurrentUser) ->
+                val distinctWaiters = waiters.distinctBy { it.username.trim().lowercase() }
+
+                _waiters.value = distinctWaiters
+                _currentWaiter.value = distinctWaiters.firstOrNull {
+                    it.username.trim().equals(currentUsername, ignoreCase = true)
+                } ?: fallbackCurrentUser
             }
         }
 
@@ -126,16 +139,30 @@ class TableDetailViewModel(application: Application) : AndroidViewModel(applicat
                         ?.token
                         ?.uppercase()
                     val tableOrders = orders.filter { it.tableId == tableId }
-                    val activeOrder = tableOrders.firstOrNull { it.waiterId != null && it.isActiveForTable() }
-                    val reservationOrder = tableOrders.firstOrNull()
+                    val reservationOrder = findOrderForReservation(tableOrders, reservation)
+                    val reservationWaiterId = reservation
+                        ?.token
+                        ?.let { reservationToken -> tokenStore.getReservationWaiterId(reservationToken) }
+                    val activeOrder = reservationOrder?.takeIf { order ->
+                        order.isOccupiedForTable()
+                    }
+                    val assignedWaiterId = activeOrder?.waiterId ?: reservationWaiterId
+                    val reservationInProgress = reservation?.isInProgressForTable() == true &&
+                        assignedWaiterId != null
                     val displayStatusToken = TableDisplayStatusLogic.resolveDisplayStatusToken(
                         physicalStatusToken = tableStatusToken,
                         hasActiveOrder = activeOrder != null,
                         hasReservation = reservation != null,
+                        hasInProgressReservation = reservationInProgress,
                         previousStatusToken = _displayStatusToken.value,
                         isSyncing = isSyncing
                     )
                     val occupiedOrder = activeOrder?.takeIf { displayStatusToken == "OCCUPIED" }
+                        ?: reservationOrder?.takeIf {
+                            displayStatusToken == "OCCUPIED" &&
+                                reservationInProgress &&
+                                it.isActiveForTable()
+                        }
                     val orderForItems = occupiedOrder
                         ?: reservationOrder?.takeIf { displayStatusToken == "RESERVED" }
 
@@ -143,8 +170,8 @@ class TableDetailViewModel(application: Application) : AndroidViewModel(applicat
                     _displayStatusToken.value = displayStatusToken
                     _reservation.value = reservation
                     _activeOrderId.value = occupiedOrder?.id
-                    _assignedWaiterName.value = occupiedOrder
-                        ?.waiterId
+                    _assignedWaiterName.value = assignedWaiterId
+                        ?.takeIf { displayStatusToken == "OCCUPIED" }
                         ?.let { waiterId ->
                             users.firstOrNull { it.id == waiterId }?.username
                         }
@@ -233,6 +260,17 @@ class TableDetailViewModel(application: Application) : AndroidViewModel(applicat
         }
 
         Log.w("TABLE_DETAIL", "Current user $username is missing locally; skipping empty-password fallback")
+    }
+
+    private fun findOrderForReservation(
+        tableOrders: List<OrderEntity>,
+        reservation: ReservationEntity?
+    ): OrderEntity? {
+        return TableDetailOrderSelectionLogic.findOrderForReservation(
+            tableOrders = tableOrders,
+            reservation = reservation,
+            reservationTokenForOrder = tokenStore::getOrderReservationToken
+        )
     }
 
     private fun getCurrentTimestamp(): String =

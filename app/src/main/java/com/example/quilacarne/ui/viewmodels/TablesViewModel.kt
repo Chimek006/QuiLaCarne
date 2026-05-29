@@ -8,7 +8,8 @@ import com.example.quilacarne.data.local.entities.ReservationEntity
 import com.example.quilacarne.data.local.entities.RestaurantTableEntity
 import com.example.quilacarne.data.local.entities.TableStatusEntity
 import com.example.quilacarne.data.local.entities.UsersEntity
-import com.example.quilacarne.data.local.entities.isActiveForTable
+import com.example.quilacarne.data.local.entities.isInProgressForTable
+import com.example.quilacarne.data.local.entities.isOccupiedForTable
 import com.example.quilacarne.data.repository.sync.SyncRepository
 import com.example.quilacarne.data.repository.sync.TableDisplayStatusLogic
 import com.example.quilacarne.data.repository.sync.TableStatusSyncLogic
@@ -129,14 +130,25 @@ class TablesViewModel(private val repository: SyncRepository) : ViewModel() {
                 val physicalStatusToken = table.statusId
                     ?.let { statusesById[it]?.token }
                     ?.uppercase()
+                val reservation = reservationsByTable[table.id]
+                val reservationWaiterId = reservation
+                    ?.token
+                    ?.let { reservationToken -> repository.getReservationWaiterId(reservationToken) }
                 val activeOrder = ordersByTable[table.id]
                     .orEmpty()
-                    .firstOrNull { it.waiterId != null && it.isActiveForTable() }
-                val reservation = reservationsByTable[table.id]
+                    .firstOrNull { order ->
+                        order.isOccupiedForTable() &&
+                            reservation != null &&
+                            repository.getOrderReservationToken(order.id) == reservation.token
+                    }
+                val waiterId = activeOrder?.waiterId ?: reservationWaiterId
+                val reservationInProgress = reservation?.isInProgressForTable() == true &&
+                    waiterId != null
                 val displayStatusToken = TableDisplayStatusLogic.resolveDisplayStatusToken(
                     physicalStatusToken = physicalStatusToken,
                     hasActiveOrder = activeOrder != null,
                     hasReservation = reservation != null,
+                    hasInProgressReservation = reservationInProgress,
                     previousStatusToken = previousState?.statusToken,
                     isSyncing = isSyncing
                 )
@@ -147,12 +159,11 @@ class TablesViewModel(private val repository: SyncRepository) : ViewModel() {
                     statusToken = displayStatusToken,
                     statusNamePl = statusNamePl(displayStatusToken, statusesById.values),
                     statusNameEn = statusNameEn(displayStatusToken, statusesById.values),
-                    waiterName = activeOrder
+                    waiterName = waiterId
                         ?.takeIf { displayStatusToken == "OCCUPIED" }
-                        ?.waiterId
                         ?.let { usersById[it]?.username },
                     reservationTime = reservation
-                        ?.takeIf { displayStatusToken == "RESERVED" }
+                        ?.takeIf { displayStatusToken == "RESERVED" || displayStatusToken == "OCCUPIED" }
                         ?.let { ReservationTimeUtils.formatTimeRange(it.startTime, it.endTime) }
                 )
             }

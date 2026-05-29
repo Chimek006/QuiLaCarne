@@ -5,6 +5,7 @@ import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import java.util.Locale
 import java.util.UUID
 
 @Entity(
@@ -38,3 +39,15 @@ data class ReservationEntity(
     @ColumnInfo(name = "updated_at") val updatedAt: String,
     @ColumnInfo(name = "deleted_at") val deletedAt: String? = null
 )
+
+fun ReservationEntity.hasStatusToken(token: String): Boolean {
+    val normalizedToken = token.uppercase(Locale.US)
+    return statusTokens
+        .split(',')
+        .map { it.trim().uppercase(Locale.US) }
+        .any { it == normalizedToken }
+}
+
+fun ReservationEntity.isInProgressForTable(): Boolean {
+    return hasStatusToken("IN_PROGRESS")
+}

@@ -50,3 +50,7 @@ fun OrderEntity.isActiveForTable(): Boolean {
         tokens.none { it in inactiveTokens } &&
         tokens.any { it in activeTokens }
 }
+
+fun OrderEntity.isOccupiedForTable(): Boolean {
+    return isActiveForTable() && waiterId != null
+}

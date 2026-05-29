@@ -1,7 +1,9 @@
 package com.example.quilacarne.data.repository.sync
 
 import com.example.quilacarne.data.local.entities.OrderEntity
+import com.example.quilacarne.data.local.entities.ReservationEntity
 import com.example.quilacarne.data.local.entities.isActiveForTable
+import com.example.quilacarne.data.local.entities.isOccupiedForTable
 import com.example.quilacarne.data.remote.dto.response.ApiResponse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -66,7 +68,7 @@ class SyncLogicTest {
     }
 
     @Test
-    fun resolveSyncedTableStatusUsesRemoteAvailableOverLocalBusyState() {
+    fun resolveSyncedTableStatusUsesRemoteAvailableOverNewerLocalCleaning() {
         assertEquals(
             "AVAILABLE",
             TableStatusSyncLogic.resolveSyncedTableStatusToken(
@@ -151,9 +153,9 @@ class SyncLogicTest {
     }
 
     @Test
-    fun displayStatusDoesNotUseLocalOccupiedWithoutActiveOrder() {
+    fun displayStatusUsesRemoteOccupiedAsSourceOfTruth() {
         assertEquals(
-            "RESERVED",
+            "OCCUPIED",
             TableDisplayStatusLogic.resolveDisplayStatusToken(
                 physicalStatusToken = "OCCUPIED",
                 hasActiveOrder = false,
@@ -163,7 +165,7 @@ class SyncLogicTest {
             )
         )
         assertEquals(
-            "AVAILABLE",
+            "OCCUPIED",
             TableDisplayStatusLogic.resolveDisplayStatusToken(
                 physicalStatusToken = "OCCUPIED",
                 hasActiveOrder = false,
@@ -175,7 +177,7 @@ class SyncLogicTest {
     }
 
     @Test
-    fun displayStatusTrustsRemoteAvailableOverStaleActiveOrder() {
+    fun displayStatusLetsRemoteAvailableOverrideAssignedOrder() {
         assertEquals(
             "RESERVED",
             TableDisplayStatusLogic.resolveDisplayStatusToken(
@@ -202,6 +204,21 @@ class SyncLogicTest {
                 physicalStatusToken = "AVAILABLE",
                 hasActiveOrder = false,
                 hasReservation = true,
+                previousStatusToken = null,
+                isSyncing = false
+            )
+        )
+    }
+
+    @Test
+    fun displayStatusLetsRemoteAvailableOverrideInProgressReservation() {
+        assertEquals(
+            "RESERVED",
+            TableDisplayStatusLogic.resolveDisplayStatusToken(
+                physicalStatusToken = "AVAILABLE",
+                hasActiveOrder = false,
+                hasReservation = true,
+                hasInProgressReservation = true,
                 previousStatusToken = null,
                 isSyncing = false
             )
@@ -244,6 +261,86 @@ class SyncLogicTest {
         assertEquals(false, order(statusTokens = "COMPLETED").isActiveForTable())
         assertEquals(false, order(statusTokens = "PENDING,CANCELLED").isActiveForTable())
         assertEquals(false, order(statusTokens = "PAID").isActiveForTable())
+    }
+
+    @Test
+    fun orderIsOccupiedForTableOnlyWhenActiveAndWaiterIsAssigned() {
+        assertEquals(true, order(statusTokens = "PENDING", waiterId = UUID.randomUUID()).isOccupiedForTable())
+        assertEquals(false, order(statusTokens = "IN_PROGRESS", waiterId = null).isOccupiedForTable())
+        assertEquals(false, order(statusTokens = "PENDING", waiterId = null).isOccupiedForTable())
+        assertEquals(false, order(statusTokens = "COMPLETED", waiterId = UUID.randomUUID()).isOccupiedForTable())
+    }
+
+    @Test
+    fun assignmentLogicTreatsAlreadyAssignedErrorAsSuccessOnlyAfterStateIsApplied() {
+        assertEquals(
+            true,
+            ReservationAssignmentLogic.shouldTreatAssignFailureAsSuccess(
+                errorMessage = "A waiter has already been assigned (reservation is in progress).",
+                order = order(statusTokens = "PENDING", waiterId = null),
+                reservation = reservation(statusTokens = "IN_PROGRESS")
+            )
+        )
+        assertEquals(
+            true,
+            ReservationAssignmentLogic.shouldTreatAssignFailureAsSuccess(
+                errorMessage = "reservation is in progress",
+                order = order(statusTokens = "IN_PROGRESS", waiterId = null),
+                reservation = reservation(statusTokens = "PENDING")
+            )
+        )
+        assertEquals(
+            false,
+            ReservationAssignmentLogic.shouldTreatAssignFailureAsSuccess(
+                errorMessage = "A waiter has already been assigned",
+                order = order(statusTokens = "PENDING", waiterId = null),
+                reservation = reservation(statusTokens = "PENDING")
+            )
+        )
+        assertEquals(
+            true,
+            ReservationAssignmentLogic.shouldTreatAssignFailureAsSuccess(
+                errorMessage = "Order not found",
+                order = null,
+                reservation = reservation(statusTokens = "IN_PROGRESS")
+            )
+        )
+        assertEquals(
+            false,
+            ReservationAssignmentLogic.shouldTreatAssignFailureAsSuccess(
+                errorMessage = "Order not found",
+                order = null,
+                reservation = reservation(statusTokens = "ACTIVE")
+            )
+        )
+    }
+
+    @Test
+    fun assignmentLogicSeesAssignedWaiterAsAppliedState() {
+        assertEquals(
+            true,
+            ReservationAssignmentLogic.isAssignmentApplied(
+                order = order(statusTokens = "PENDING", waiterId = UUID.randomUUID()),
+                reservation = reservation(statusTokens = "PENDING")
+            )
+        )
+    }
+
+    @Test
+    fun pendingTableStatusLogicMapsOptimisticActionsToDisplayStatusTokens() {
+        assertEquals(
+            "CLEANING",
+            PendingTableStatusLogic.statusTokenForAction(PendingRequestRepository.ACTION_MARK_CLEANING)
+        )
+        assertEquals(
+            "AVAILABLE",
+            PendingTableStatusLogic.statusTokenForAction(PendingRequestRepository.ACTION_MARK_AVAILABLE)
+        )
+        assertEquals(
+            "OUT_OF_SERVICE",
+            PendingTableStatusLogic.statusTokenForAction(PendingRequestRepository.ACTION_MARK_OUT_OF_SERVICE)
+        )
+        assertNull(PendingTableStatusLogic.statusTokenForAction("UNKNOWN"))
     }
 
     @Test
@@ -314,13 +411,35 @@ class SyncLogicTest {
         assertEquals("Bad state", exception.message)
     }
 
-    private fun order(statusTokens: String): OrderEntity {
+    private fun order(
+        statusTokens: String,
+        waiterId: UUID? = UUID.randomUUID()
+    ): OrderEntity {
         return OrderEntity(
             id = UUID.randomUUID(),
             tableId = UUID.randomUUID(),
-            waiterId = UUID.randomUUID(),
+            waiterId = waiterId,
             statusId = null,
             statusTokens = statusTokens,
+            createdAt = "created",
+            updatedAt = "updated"
+        )
+    }
+
+    private fun reservation(statusTokens: String): ReservationEntity {
+        val id = UUID.randomUUID()
+        return ReservationEntity(
+            id = id,
+            token = "reservation-$id",
+            tableId = UUID.randomUUID(),
+            tableToken = "table",
+            userToken = "user",
+            startTime = "start",
+            endTime = "end",
+            startEpochMillis = 1_000L,
+            endEpochMillis = 2_000L,
+            statusTokens = statusTokens,
+            isActive = true,
             createdAt = "created",
             updatedAt = "updated"
         )

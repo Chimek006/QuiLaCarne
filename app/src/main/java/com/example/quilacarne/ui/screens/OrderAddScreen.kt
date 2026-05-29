@@ -320,12 +320,12 @@ private fun orderSaveSection(
             Text(
                 text = pendingWaiterName?.let { waiterName ->
                     language.choose(
-                        "Kelner zostanie przypisany po zapisaniu: $waiterName",
-                        "Waiter will be assigned after saving: $waiterName"
+                        "Zalogowany kelner zostanie przypisany po zapisaniu: $waiterName",
+                        "Signed-in waiter will be assigned after saving: $waiterName"
                     )
                 } ?: language.choose(
-                    "Kelner zostanie przypisany po zapisaniu",
-                    "Waiter will be assigned after saving"
+                    "Zalogowany kelner zostanie przypisany po zapisaniu",
+                    "Signed-in waiter will be assigned after saving"
                 ),
                 color = Color.DarkGray,
                 fontSize = 14.sp,

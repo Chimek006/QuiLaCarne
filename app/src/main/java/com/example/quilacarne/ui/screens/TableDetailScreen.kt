@@ -40,15 +40,13 @@ fun TableDetailScreen(
     val orderItems by viewModel.orderItems.collectAsState()
     val statusDict by viewModel.statusDictionary.collectAsState()
     val displayStatusToken by viewModel.displayStatusToken.collectAsState()
-    val waiters by viewModel.waiters.collectAsState()
+    val currentWaiter by viewModel.currentWaiter.collectAsState()
     val activeOrderId by viewModel.activeOrderId.collectAsState()
     val assignedWaiterName by viewModel.assignedWaiterName.collectAsState()
     val reservation by viewModel.reservation.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val language = rememberAppLanguage()
     var showStatusDialog by remember { mutableStateOf(false) }
-    var showWaiterDialog by remember { mutableStateOf(false) }
-    var pendingOccupiedStatus by remember { mutableStateOf<TableStatusOption?>(null) }
     var stagedStatus by remember(tableId) { mutableStateOf<TableStatusOption?>(null) }
     var stagedWaiter by remember(tableId) { mutableStateOf<UsersEntity?>(null) }
     var isSavingChanges by remember { mutableStateOf(false) }
@@ -129,8 +127,14 @@ fun TableDetailScreen(
             } else if (displayedToken == "RESERVED") {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "${language.choose("Godziny rezerwacji", "Reservation time")}: ${
-                        reservation?.let { ReservationTimeUtils.formatTimeRange(it.startTime, it.endTime) }.orEmpty()
+                    text = "${language.choose("Rezerwacja", "Reservation")}: ${
+                        reservation?.let {
+                            ReservationTimeUtils.formatDateTimeRange(
+                                startTime = it.startTime,
+                                endTime = it.endTime,
+                                locale = Locale.forLanguageTag(language.code)
+                            )
+                        }.orEmpty()
                     }",
                     modifier = Modifier.fillMaxWidth(),
                     color = Color.DarkGray,
@@ -249,8 +253,8 @@ fun TableDetailScreen(
                         stagedStatus = null
                         stagedWaiter = null
                         statusSaveError = language.choose(
-                            "Wybierz kelnera i zapisz zamowienie na ekranie edycji.",
-                            "Select a waiter and save the order on the edit screen."
+                            "Zapisz zamowienie na ekranie edycji, aby przypisac zalogowanego kelnera.",
+                            "Save the order on the edit screen to assign the signed-in waiter."
                         )
                     } else {
                         viewModel.changeTableStatus(
@@ -313,32 +317,18 @@ fun TableDetailScreen(
                         return@statusSelected
                     }
                     if (status.token == "OCCUPIED") {
-                        pendingOccupiedStatus = status
-                        showWaiterDialog = true
-                    } else {
-                        stagedStatus = status
-                        stagedWaiter = null
-                    }
-                }
-            )
-        }
+                        val waiter = currentWaiter
+                        if (waiter == null) {
+                            statusSaveError = language.choose(
+                                "Nie znaleziono zalogowanego kelnera. Zaloguj sie ponownie i sprobuj jeszcze raz.",
+                                "Could not find the signed-in waiter. Sign in again and try once more."
+                            )
+                            stagedStatus = null
+                            stagedWaiter = null
+                            return@statusSelected
+                        }
 
-        if (showWaiterDialog) {
-            WaiterAssignmentDialog(
-                waiters = waiters,
-                language = language,
-                onDismiss = {
-                    showWaiterDialog = false
-                    pendingOccupiedStatus = null
-                },
-                onWaiterSelected = { waiter ->
-                    val status = pendingOccupiedStatus
-                    if (status != null) {
-                        statusSaveError = null
-                        showWaiterDialog = false
-                        pendingOccupiedStatus = null
                         isSavingChanges = true
-
                         viewModel.prepareOrderEditForOccupyingTable(tableId) { result ->
                             isSavingChanges = false
                             result
@@ -354,6 +344,9 @@ fun TableDetailScreen(
                                     )
                                 }
                         }
+                    } else {
+                        stagedStatus = status
+                        stagedWaiter = null
                     }
                 }
             )
@@ -729,17 +722,15 @@ private fun statusTransitionError(
                 "This status is not available for the current table state."
             )
         }
-        "RESERVED" -> if (target == "OCCUPIED" && !hasReservation) {
-            language.choose(
+        "RESERVED" -> when {
+            target == "OCCUPIED" && hasReservation -> null
+            target == "OCCUPIED" -> language.choose(
                 "Nie mozna zajac stolika bez aktualnej lub nadchodzacej rezerwacji.",
                 "You cannot occupy a table without a current or upcoming reservation."
             )
-        } else if (target == "OUT_OF_SERVICE" || target == "OCCUPIED") {
-            null
-        } else {
-            language.choose(
-                "Ten status nie jest dostepny dla aktualnego stanu stolika.",
-                "This status is not available for the current table state."
+            else -> language.choose(
+                "Zarezerwowany stolik mozna teraz przelaczyc tylko na zajety.",
+                "A reserved table can only be changed to occupied now."
             )
         }
         else -> null

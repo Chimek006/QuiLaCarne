@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
 import com.example.quilacarne.utils.SecurePreferences
+import java.util.Locale
 import java.util.UUID
 
 class RemoteTokenStore(context: Context) {
@@ -53,6 +54,32 @@ class RemoteTokenStore(context: Context) {
             .apply()
     }
 
+    fun saveLocalTableStatusOverride(tableId: UUID, statusToken: String?) {
+        val normalizedToken = statusToken
+            ?.trim()
+            ?.uppercase(Locale.US)
+            ?.takeIf { it.isNotBlank() }
+
+        if (normalizedToken == null) {
+            clearLocalTableStatusOverride(tableId)
+            return
+        }
+
+        prefs.edit()
+            .putString("table_status_override_$tableId", normalizedToken)
+            .apply()
+    }
+
+    fun getLocalTableStatusOverride(tableId: UUID): String? {
+        return prefs.getString("table_status_override_$tableId", null)
+    }
+
+    fun clearLocalTableStatusOverride(tableId: UUID) {
+        prefs.edit()
+            .remove("table_status_override_$tableId")
+            .apply()
+    }
+
     fun saveReservationUserToken(reservationToken: String, userToken: String?) {
         if (userToken.isNullOrBlank()) return
         prefs.edit()
@@ -62,6 +89,24 @@ class RemoteTokenStore(context: Context) {
 
     fun getReservationUserToken(reservationToken: String): String? {
         return prefs.getString("reservation_user_$reservationToken", null)
+    }
+
+    fun saveReservationWaiterId(reservationToken: String, waiterId: UUID?) {
+        if (reservationToken.isBlank() || waiterId == null) return
+        prefs.edit()
+            .putString("reservation_waiter_$reservationToken", waiterId.toString())
+            .apply()
+    }
+
+    fun getReservationWaiterId(reservationToken: String): UUID? {
+        val raw = prefs.getString("reservation_waiter_$reservationToken", null) ?: return null
+        return runCatching { UUID.fromString(raw) }.getOrNull()
+    }
+
+    fun clearReservationWaiterId(reservationToken: String) {
+        prefs.edit()
+            .remove("reservation_waiter_$reservationToken")
+            .apply()
     }
 
     private fun tokenKey(type: String, localId: UUID): String = "${type}_token_$localId"

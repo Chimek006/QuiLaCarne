@@ -136,12 +136,13 @@ internal class WebSocketSyncHandler(
         val existingStatusToken = existing?.statusId?.let { statusId ->
             database.tableStatusDao().getStatusByIdOnce(statusId)?.token
         }
-        val statusToken = TableStatusSyncLogic.resolveSyncedTableStatusToken(
-            remoteStatusToken = dto.currentStatusToken(),
-            existingStatusToken = existingStatusToken,
-            remoteUpdatedAt = dto.updatedAt,
-            existingUpdatedAt = existing?.updatedAt
-        )
+        val statusToken = pendingTableStatusToken(tableId)
+            ?: TableStatusSyncLogic.resolveSyncedTableStatusToken(
+                remoteStatusToken = dto.currentStatusToken(),
+                existingStatusToken = existingStatusToken,
+                remoteUpdatedAt = dto.updatedAt,
+                existingUpdatedAt = existing?.updatedAt
+            )
         val table = RestaurantTableEntity(
             id = tableId,
             tableNumber = dto.tableNumber,
@@ -154,8 +155,20 @@ internal class WebSocketSyncHandler(
         database.withTransaction {
             statusToken?.let { ensureTableStatus(it, now) }
             database.restaurantTableDao().insertTables(listOf(table))
+            if (statusToken.isReleasedTableStatus()) {
+                database.orderDao().clearOrderWaitersForTable(tableId, now)
+            }
         }
         tokenStore?.saveToken("table", tableId, dto.token)
+    }
+
+    private suspend fun pendingTableStatusToken(tableId: UUID): String? {
+        return database.pendingRequestDao()
+            .getPendingByEntityType(PendingRequestRepository.ENTITY_TABLE)
+            .lastOrNull { pending -> pending.entityLocalId == tableId.toString() }
+            ?.let { pending ->
+                PendingTableStatusLogic.statusTokenForAction(pending.optimisticAction)
+            }
     }
 
     private suspend fun upsertReservationFromWebSocket(dto: ReservationSyncDto) {
@@ -169,7 +182,15 @@ internal class WebSocketSyncHandler(
 
     private suspend fun upsertOrderFromWebSocket(dto: OrderSyncDto) {
         val entity = dto.toOrderEntity()
-        database.orderDao().insertOrder(entity)
+        val order = if (
+            entity.waiterId != null &&
+            entity.tableId?.let { tableId -> isTableReleased(tableId) } == true
+        ) {
+            entity.copy(waiterId = null)
+        } else {
+            entity
+        }
+        database.orderDao().insertOrder(order)
         tokenStore?.saveToken("order", entity.id, dto.token)
         tokenStore?.saveOrderReservationToken(entity.id, dto.reservationToken)
     }
@@ -178,6 +199,13 @@ internal class WebSocketSyncHandler(
         val entity = dto.toOrderItemEntity()
         database.orderDao().insertOrderItem(entity)
         tokenStore?.saveToken("orderItem", entity.id, dto.token)
+    }
+
+    private suspend fun isTableReleased(tableId: UUID): Boolean {
+        val table = database.restaurantTableDao().getTableByIdOnce(tableId) ?: return false
+        val statusToken = table.statusId
+            ?.let { statusId -> database.tableStatusDao().getStatusByIdOnce(statusId)?.token }
+        return statusToken.isReleasedTableStatus()
     }
 
     private suspend fun upsertDishFromWebSocket(dto: DishSyncDto) {
@@ -398,4 +426,10 @@ internal class WebSocketSyncHandler(
         tokenStore?.saveToken("reservation", reservationId, reservation.token)
         tokenStore?.saveReservationUserToken(reservation.token, reservation.userToken)
     }
+}
+
+private fun String?.isReleasedTableStatus(): Boolean {
+    return this
+        ?.uppercase(Locale.US)
+        .let { token -> token == "AVAILABLE" || token == "CLEANING" || token == "OUT_OF_SERVICE" }
 }

@@ -8,9 +8,11 @@ import androidx.room.withTransaction
 import com.example.quilacarne.data.local.AppDatabase
 import com.example.quilacarne.data.local.entities.DishCategoryEntity
 import com.example.quilacarne.data.local.entities.DishEntity
+import com.example.quilacarne.data.local.entities.OrderEntity
 import com.example.quilacarne.data.local.entities.OrderItemEntity
 import com.example.quilacarne.data.local.entities.RestaurantTableEntity
 import com.example.quilacarne.data.local.relations.OrderItemWithDish
+import com.example.quilacarne.data.repository.sync.ReservationAssignmentLogic
 import com.example.quilacarne.data.repository.sync.SyncRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -50,6 +52,7 @@ class OrderAddViewModel(application: Application) : AndroidViewModel(application
     val pendingWaiterName: StateFlow<String?> = _pendingWaiterName
 
     private var orderId: UUID? = null
+    private var tableId: UUID? = null
     private var orderItemsJob: Job? = null
     private var tableJob: Job? = null
 
@@ -70,6 +73,7 @@ class OrderAddViewModel(application: Application) : AndroidViewModel(application
 
     fun load(tableId: UUID, orderId: UUID, pendingWaiterId: UUID? = null) {
         this.orderId = orderId
+        this.tableId = tableId
         _pendingWaiterId.value = pendingWaiterId
         _pendingWaiterName.value = null
         _hasPendingChanges.value = false
@@ -224,7 +228,12 @@ class OrderAddViewModel(application: Application) : AndroidViewModel(application
 
                 refreshOrderTotal(currentOrderId, now)
                 if (waiterIdToAssign != null) {
-                    db.orderDao().updateOrderWaiter(currentOrderId, waiterIdToAssign, now)
+                    ensureLocalOrderExistsForWaiterAssignment(
+                        orderId = currentOrderId,
+                        tableId = tableId,
+                        waiterId = waiterIdToAssign,
+                        now = now
+                    )
                 }
             }
 
@@ -278,7 +287,11 @@ class OrderAddViewModel(application: Application) : AndroidViewModel(application
 
         var saveResult = Result.success(Unit)
 
-        if (additions.isNotEmpty() || removals.isNotEmpty()) {
+        if (pendingWaiterId != null) {
+            saveResult = saveWaiterAssignment(orderId, pendingWaiterId)
+        }
+
+        if (saveResult.isSuccess && (additions.isNotEmpty() || removals.isNotEmpty())) {
             saveResult = syncRepository.saveReservationItemDeltas(
                 orderId = orderId,
                 additions = additions,
@@ -289,14 +302,82 @@ class OrderAddViewModel(application: Application) : AndroidViewModel(application
 
         }
 
-        if (saveResult.isSuccess && pendingWaiterId != null) {
-            saveResult = syncRepository.assignWaiterToReservationForOrder(orderId)
-                .onFailure { error ->
-                    Log.w("ORDER_REMOTE", "Nie udalo sie przypisac kelnera w API: ${error.message}")
-                }
+        return saveResult
+    }
+
+    private suspend fun saveWaiterAssignment(
+        orderId: UUID,
+        pendingWaiterId: UUID
+    ): Result<Unit> {
+        val refreshedAssignmentState = syncRepository.refreshAssignmentStateForOrder(
+            orderId = orderId,
+            reason = "assign-waiter-precheck"
+        ).onFailure { error ->
+            Log.w("ORDER_REMOTE", "Nie udalo sie odswiezyc stanu przed przypisaniem kelnera: ${error.message}")
         }
 
-        return saveResult
+        if (refreshedAssignmentState.getOrDefault(false)) {
+            syncRepository.rememberReservationWaiterForOrder(orderId, pendingWaiterId)
+            return Result.success(Unit)
+        }
+
+        val assignResult = syncRepository.assignWaiterToReservationForOrder(orderId)
+            .onFailure { error ->
+                Log.w("ORDER_REMOTE", "Nie udalo sie przypisac kelnera w API: ${error.message}")
+            }
+
+        if (assignResult.isSuccess) {
+            syncRepository.rememberReservationWaiterForOrder(orderId, pendingWaiterId)
+            return assignResult
+        }
+
+        val assignError = assignResult.exceptionOrNull()
+        if (!ReservationAssignmentLogic.isAlreadyAssignedError(assignError?.message)) {
+            return assignResult
+        }
+
+        val reconciledAssignmentState = syncRepository.refreshAssignmentStateForOrder(
+            orderId = orderId,
+            reason = "assign-waiter-already-assigned-reconcile"
+        ).onFailure { error ->
+            Log.w("ORDER_REMOTE", "Nie udalo sie potwierdzic przypisania kelnera po bledzie API: ${error.message}")
+        }
+
+        return if (reconciledAssignmentState.getOrDefault(false)) {
+            syncRepository.rememberReservationWaiterForOrder(orderId, pendingWaiterId)
+            Result.success(Unit)
+        } else {
+            assignResult
+        }
+    }
+
+    private suspend fun ensureLocalOrderExistsForWaiterAssignment(
+        orderId: UUID,
+        tableId: UUID?,
+        waiterId: UUID,
+        now: String
+    ) {
+        val existingOrder = db.orderDao()
+            .getAllOrdersOnce()
+            .firstOrNull { it.id == orderId }
+
+        if (existingOrder == null && tableId != null) {
+            db.orderDao().insertOrder(
+                OrderEntity(
+                    id = orderId,
+                    tableId = tableId,
+                    waiterId = waiterId,
+                    statusId = null,
+                    statusTokens = "IN_PROGRESS",
+                    totalPrice = 0,
+                    createdAt = now,
+                    updatedAt = now
+                )
+            )
+            return
+        }
+
+        db.orderDao().updateOrderWaiter(orderId, waiterId, now)
     }
 
     private fun getCurrentTimestamp(): String =

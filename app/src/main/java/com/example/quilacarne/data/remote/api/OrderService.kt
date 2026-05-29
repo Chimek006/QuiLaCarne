@@ -65,6 +65,11 @@ interface OrderService {
         @Path("token") reservationToken: String
     ): Response<ApiResponse<Unit>>
 
+    @PATCH("reservations/{token}/complete")
+    suspend fun completeReservation(
+        @Path("token") reservationToken: String
+    ): Response<ApiResponse<Unit>>
+
     @PATCH("reservations/{token}/absent")
     suspend fun markReservationAbsent(
         @Path("token") reservationToken: String
