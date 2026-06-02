@@ -16,8 +16,11 @@ import androidx.navigation.NavController
 import com.example.quilacarne.ui.components.QuiLaCarneHeader
 import com.example.quilacarne.ui.i18n.AppLanguage
 import com.example.quilacarne.ui.i18n.rememberAppLanguage
+import com.example.quilacarne.ui.state.SyncUiStateError
+import com.example.quilacarne.ui.state.SyncUiStateLoading
+import com.example.quilacarne.ui.state.SyncUiStateOfflineAvailable
+import com.example.quilacarne.ui.state.SyncUiStateSuccess
 import com.example.quilacarne.ui.theme.green
-import com.example.quilacarne.ui.viewmodels.SyncUiState
 import com.example.quilacarne.ui.viewmodels.SyncViewModel
 
 @Composable
@@ -32,9 +35,9 @@ fun SyncScreen(
         viewModel.startSync()
     }
 
-    if (state is SyncUiState.Success || state is SyncUiState.OfflineAvailable) {
+    if (state is SyncUiStateSuccess || state is SyncUiStateOfflineAvailable) {
         LaunchedEffect(state) {
-            if (state is SyncUiState.Success || state is SyncUiState.OfflineAvailable) {
+            if (state is SyncUiStateSuccess || state is SyncUiStateOfflineAvailable) {
                 navController.navigate("main") {
                     popUpTo("sync") { inclusive = true }
                 }
@@ -60,7 +63,7 @@ fun SyncScreen(
                 modifier = Modifier.padding(horizontal = 32.dp)
             ) {
                 when (val s = state) {
-                    is SyncUiState.Loading -> {
+                    is SyncUiStateLoading -> {
                         CircularProgressIndicator(
                             color = green,
                             modifier = Modifier.size(64.dp)
@@ -80,7 +83,7 @@ fun SyncScreen(
                             trackColor = Color.LightGray
                         )
                     }
-                    is SyncUiState.Error -> {
+                    is SyncUiStateError -> {
                         Text(
                             text = language.choose("Ups! Cos poszlo nie tak", "Oops! Something went wrong"),
                             color = Color.Red,

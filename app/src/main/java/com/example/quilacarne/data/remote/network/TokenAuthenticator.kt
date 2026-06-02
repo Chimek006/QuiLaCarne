@@ -2,7 +2,7 @@ package com.example.quilacarne.data.remote.network
 
 import com.example.quilacarne.BuildConfig
 import com.example.quilacarne.data.local.TokenManager
-import com.example.quilacarne.data.remote.api.AuthService
+import com.example.quilacarne.data.remote.service.AuthService
 import com.example.quilacarne.data.remote.dto.request.RefreshRequest
 import okhttp3.Authenticator
 import okhttp3.OkHttpClient

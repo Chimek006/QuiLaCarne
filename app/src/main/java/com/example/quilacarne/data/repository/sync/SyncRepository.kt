@@ -19,10 +19,27 @@ import com.example.quilacarne.data.remote.dto.request.ReservationDishRequest
 import com.example.quilacarne.data.remote.dto.response.BootstrapResponse
 import com.example.quilacarne.data.remote.dto.response.ReservationSyncDto
 import com.example.quilacarne.data.remote.dto.response.TableDto
+import com.example.quilacarne.data.remote.dto.response.UserSyncDto
 import com.example.quilacarne.data.remote.dto.response.WebSocketEvent
 import com.example.quilacarne.data.remote.dto.response.values
-import com.example.quilacarne.data.remote.network.RemoteTokenStore
 import com.example.quilacarne.data.remote.network.RetrofitClient
+import com.example.quilacarne.data.remote.store.RemoteTokenStore
+import com.example.quilacarne.data.repository.sync.cache.DishImageCache
+import com.example.quilacarne.data.repository.sync.handler.MenuSyncHandler
+import com.example.quilacarne.data.repository.sync.handler.WebSocketSyncHandler
+import com.example.quilacarne.data.repository.sync.logic.ApiResponseLogic
+import com.example.quilacarne.data.repository.sync.logic.PendingTableStatusLogic
+import com.example.quilacarne.data.repository.sync.logic.ReservationAssignmentLogic
+import com.example.quilacarne.data.repository.sync.logic.ReservationSelectionLogic
+import com.example.quilacarne.data.repository.sync.logic.TableStatusSyncLogic
+import com.example.quilacarne.data.repository.sync.model.OccupyReservationSelection
+import com.example.quilacarne.data.repository.sync.model.OperationalSyncSnapshot
+import com.example.quilacarne.data.repository.sync.model.OrderTokenSnapshot
+import com.example.quilacarne.data.repository.sync.model.OrdersAndItemsSyncSnapshot
+import com.example.quilacarne.data.repository.sync.model.ReservationTokenSnapshot
+import com.example.quilacarne.data.repository.sync.model.ReservationsSyncSnapshot
+import com.example.quilacarne.data.repository.sync.model.TablesSyncSnapshot
+import com.example.quilacarne.data.repository.sync.model.UsersSyncSnapshot
 import com.example.quilacarne.utils.ReservationTimeUtils
 import com.google.gson.Gson
 import com.google.gson.JsonElement
@@ -49,7 +66,9 @@ class SyncRepository(
         private val _isOperationalSyncRunning = MutableStateFlow(false)
         val isOperationalSyncRunning: StateFlow<Boolean> = _isOperationalSyncRunning
         private const val PERSONNEL_UPDATES_TOPIC = "/topic/personnel/updates"
-        private val CURRENT_USER_SESSION_CLEAR_EVENT_TYPES = setOf("CREATED", "UPDATED")
+        private const val BAN_UPDATES_TOPIC = "/topic/security/bans"
+        private val CURRENT_USER_SESSION_CLEAR_EVENT_TYPES = setOf("CREATED", "UPDATED", "DELETED")
+        private val BAN_SESSION_CLEAR_EVENT_TYPES = setOf("CREATED", "UPDATED")
     }
 
     private val dishService = RetrofitClient.dishService
@@ -113,11 +132,18 @@ class SyncRepository(
         topic: String,
         rawMessage: String
     ): Boolean = withContext(Dispatchers.IO) {
+        clearCurrentSessionForAccountEventIfNeeded(topic, rawMessage) != null
+    }
+
+    suspend fun clearCurrentSessionForAccountEventIfNeeded(
+        topic: String,
+        rawMessage: String
+    ): SessionInvalidationReason? = withContext(Dispatchers.IO) {
         runCatching {
-            clearCurrentSessionForMatchingPersonnelEvent(topic, rawMessage)
+            clearCurrentSessionForMatchingAccountEvent(topic, rawMessage)
         }.onFailure { error ->
-            Log.w("QLC_WS_EVENT", "Nie udalo sie sprawdzic eventu personnel: ${error.message}")
-        }.getOrDefault(false)
+            Log.w("QLC_WS_EVENT", "Nie udalo sie sprawdzic eventu konta: ${error.message}")
+        }.getOrNull()
     }
 
     suspend fun syncAllLocalData(clearBeforeSync: Boolean = false): Result<Unit> = withContext(Dispatchers.IO) {
@@ -781,6 +807,7 @@ class SyncRepository(
             for (dto in usersDto) {
                 val user = dto.toUsersEntity(effectivePreservedPasswords)
                 tokenStore?.saveToken("user", user.id, dto.token)
+                saveCurrentUserRemoteTokenIfNeeded(dto)
                 users.add(user)
             }
 
@@ -822,6 +849,7 @@ class SyncRepository(
                     val user = dto.toUsersEntity(effectivePreservedPasswords)
                     users.add(user)
                     userTokens.add(user.id to dto.token)
+                    saveCurrentUserRemoteTokenIfNeeded(dto)
                 }
         }
 
@@ -837,6 +865,20 @@ class SyncRepository(
     private fun persistUsersSnapshotTokens(snapshot: UsersSyncSnapshot) {
         snapshot.userTokens.forEach { (userId, token) ->
             tokenStore?.saveToken("user", userId, token)
+        }
+    }
+
+    private fun saveCurrentUserRemoteTokenIfNeeded(dto: UserSyncDto) {
+        val currentUsername = tokenManager
+            ?.getCurrentUsername()
+            ?.normalizedLoginKey()
+            ?: return
+
+        val matchesCurrentUser = dto.username.normalizedLoginKey() == currentUsername ||
+            dto.email?.normalizedLoginKey() == currentUsername
+
+        if (matchesCurrentUser) {
+            tokenManager.setCurrentUserRemoteToken(dto.token)
         }
     }
 
@@ -1536,48 +1578,109 @@ class SyncRepository(
         }
     }
 
-    private suspend fun clearCurrentSessionForMatchingPersonnelEvent(
+    private suspend fun clearCurrentSessionForMatchingAccountEvent(
         topic: String,
         rawMessage: String
-    ): Boolean {
-        if (topic != PERSONNEL_UPDATES_TOPIC) return false
+    ): SessionInvalidationReason? {
+        val manager = tokenManager ?: return null
+        val store = tokenStore ?: return null
+        val event = gson.fromJson(rawMessage, WebSocketEvent::class.java) ?: return null
+        val eventType = event.eventType.normalizedEventText() ?: return null
+        val entityType = event.entityType.normalizedEventText() ?: return null
 
-        val manager = tokenManager ?: return false
-        val store = tokenStore ?: return false
-        val event = gson.fromJson(rawMessage, WebSocketEvent::class.java) ?: return false
-        val eventType = event.eventType.normalizedEventText() ?: return false
-        val entityType = event.entityType.normalizedEventText() ?: return false
+        val currentUsername = manager.getCurrentUsername().trimmedOrNull() ?: return null
+        val storedCurrentUserTokens = database.userDao()
+            .getAllUsersOnce()
+            .filter { user -> user.username.trim().equals(currentUsername, ignoreCase = true) }
+            .mapNotNull { user -> store.getToken("user", user.id).trimmedOrNull() }
+        val currentUserTokens = (
+            listOfNotNull(manager.getCurrentUserRemoteToken().trimmedOrNull()) + storedCurrentUserTokens
+            ).toSet()
 
-        if (eventType !in CURRENT_USER_SESSION_CLEAR_EVENT_TYPES || entityType != "EMPLOYEE") {
-            return false
+        val reason = when {
+            topic == PERSONNEL_UPDATES_TOPIC && entityType == "EMPLOYEE" ->
+                personnelSessionInvalidationReason(eventType, event, currentUserTokens, currentUsername)
+            topic == BAN_UPDATES_TOPIC && entityType == "BAN" ->
+                banSessionInvalidationReason(eventType, event, currentUserTokens)
+            else -> null
+        } ?: return null
+
+        if (reason.requiresLocalLoginDisable()) {
+            database.userDao().disableLocalLoginForUsername(
+                username = currentUsername,
+                deletedAt = event.timestamp.trimmedOrNull() ?: getCurrentTimestamp()
+            )
         }
-
-        val eventTokens = event.candidateUserTokens()
-        if (eventTokens.isEmpty()) return false
-
-        val currentUsername = manager.getCurrentUsername().trimmedOrNull() ?: return false
-        val currentUser = database.userDao().getUserByUsername(currentUsername) ?: return false
-        val currentUserToken = store.getToken("user", currentUser.id).trimmedOrNull() ?: return false
-
-        if (eventTokens.none { it == currentUserToken }) return false
-
         manager.clearTokens()
-        Log.i("QLC_WS_EVENT", "Wyczyszczono lokalna sesje po evencie personnel $eventType dla zalogowanego usera")
-        return true
+        Log.i("QLC_WS_EVENT", "Wyczyszczono lokalna sesje po evencie $entityType/$eventType dla zalogowanego usera")
+        return reason
+    }
+
+    private fun personnelSessionInvalidationReason(
+        eventType: String,
+        event: WebSocketEvent,
+        currentUserTokens: Set<String>,
+        currentUsername: String
+    ): SessionInvalidationReason? {
+        if (eventType !in CURRENT_USER_SESSION_CLEAR_EVENT_TYPES) return null
+
+        val tokenMatches = event.candidateUserTokens().any { it in currentUserTokens }
+        val usernameMatches = event.candidateUsernames().any {
+            it.equals(currentUsername, ignoreCase = true)
+        }
+        if (!tokenMatches && !usernameMatches) return null
+
+        return when {
+            eventType == "DELETED" -> SessionInvalidationReason.USER_DELETED
+            event.payload.payloadBoolean("isActive") == false -> SessionInvalidationReason.USER_DELETED
+            else -> SessionInvalidationReason.USER_CHANGED
+        }
+    }
+
+    private fun banSessionInvalidationReason(
+        eventType: String,
+        event: WebSocketEvent,
+        currentUserTokens: Set<String>
+    ): SessionInvalidationReason? {
+        if (eventType !in BAN_SESSION_CLEAR_EVENT_TYPES) return null
+        if (event.payload.payloadBoolean("isActive") == false) return null
+
+        val bannedUserToken = event.payload.payloadString("userToken") ?: return null
+        if (bannedUserToken !in currentUserTokens) return null
+
+        return SessionInvalidationReason.USER_BANNED
+    }
+
+    private fun SessionInvalidationReason.requiresLocalLoginDisable(): Boolean {
+        return this == SessionInvalidationReason.USER_DELETED || this == SessionInvalidationReason.USER_BANNED
     }
 
     private fun WebSocketEvent.candidateUserTokens(): Set<String> {
-        return listOfNotNull(token.trimmedOrNull(), payload.payloadToken())
+        return listOfNotNull(token.trimmedOrNull(), payload.payloadString("token"))
             .toSet()
     }
 
-    private fun JsonElement?.payloadToken(): String? {
+    private fun WebSocketEvent.candidateUsernames(): Set<String> {
+        return listOfNotNull(payload.payloadString("username"), payload.payloadString("email"))
+            .toSet()
+    }
+
+    private fun JsonElement?.payloadString(name: String): String? {
         if (this == null || !isJsonObject) return null
 
-        val tokenElement = asJsonObject.get("token")
-        if (tokenElement == null || !tokenElement.isJsonPrimitive) return null
+        val element = asJsonObject.get(name)
+        if (element == null || !element.isJsonPrimitive) return null
 
-        return tokenElement.asString.trimmedOrNull()
+        return element.asString.trimmedOrNull()
+    }
+
+    private fun JsonElement?.payloadBoolean(name: String): Boolean? {
+        if (this == null || !isJsonObject) return null
+
+        val element = asJsonObject.get(name)
+        if (element == null || !element.isJsonPrimitive) return null
+
+        return runCatching { element.asBoolean }.getOrNull()
     }
 
     private fun String?.normalizedEventText(): String? {

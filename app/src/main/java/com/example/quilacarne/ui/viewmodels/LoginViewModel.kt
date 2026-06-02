@@ -6,8 +6,12 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.quilacarne.data.local.AppDatabase
 import com.example.quilacarne.data.local.TokenManager
-import com.example.quilacarne.data.repository.AuthRepository
-import com.example.quilacarne.data.repository.LoginSource
+import com.example.quilacarne.data.repository.auth.AuthRepository
+import com.example.quilacarne.ui.state.LoginState
+import com.example.quilacarne.ui.state.LoginStateError
+import com.example.quilacarne.ui.state.LoginStateIdle
+import com.example.quilacarne.ui.state.LoginStateLoading
+import com.example.quilacarne.ui.state.LoginStateSuccess
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -17,7 +21,7 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
     private val authRepository = AuthRepository(db)
     private val tokenManager = TokenManager(application.applicationContext)
 
-    private val _loginState = MutableStateFlow<LoginState>(LoginState.Idle)
+    private val _loginState = MutableStateFlow<LoginState>(LoginStateIdle)
     val loginState: StateFlow<LoginState> = _loginState
 
     fun hasBootstrapped(): Boolean {
@@ -26,7 +30,7 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
 
     fun login(username: String, password: String, isOnline: Boolean) {
         viewModelScope.launch {
-            _loginState.value = LoginState.Loading
+            _loginState.value = LoginStateLoading
 
             val result = authRepository.loginHybrid(username, password, isOnline)
 
@@ -36,20 +40,13 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
                     refreshToken = loginResult.refreshToken
                 )
                 tokenManager.setCurrentUsername(loginResult.username)
-                _loginState.value = LoginState.Success(loginResult.source)
+                _loginState.value = LoginStateSuccess(loginResult.source)
             }
 
             result.onFailure { error ->
-                Log.e("LOGIN_VM", "Logowanie nie powiodło się: ${error.message}")
-                _loginState.value = LoginState.Error(error.message ?: "Nieznany błąd")
+                Log.e("LOGIN_VM", "Logowanie nie powiodlo sie: ${error.message}")
+                _loginState.value = LoginStateError(error.message ?: "Nieznany blad")
             }
         }
     }
-}
-
-sealed class LoginState {
-    object Idle : LoginState()
-    object Loading : LoginState()
-    data class Success(val source: LoginSource) : LoginState()
-    data class Error(val message: String) : LoginState()
 }

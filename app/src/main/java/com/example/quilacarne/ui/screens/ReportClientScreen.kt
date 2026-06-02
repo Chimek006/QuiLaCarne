@@ -17,9 +17,11 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.example.quilacarne.ui.components.QuiLaCarneHeader
 import com.example.quilacarne.ui.i18n.rememberAppLanguage
+import com.example.quilacarne.ui.state.ReportClientUiStateError
+import com.example.quilacarne.ui.state.ReportClientUiStateSending
+import com.example.quilacarne.ui.state.ReportClientUiStateSent
 import com.example.quilacarne.ui.theme.green
 import com.example.quilacarne.ui.theme.lightGray
-import com.example.quilacarne.ui.viewmodels.ReportClientUiState
 import com.example.quilacarne.ui.viewmodels.ReportClientViewModel
 import java.util.UUID
 
@@ -33,11 +35,11 @@ fun ReportClientScreen(
     var description by remember { mutableStateOf("") }
     val uiState by viewModel.uiState.collectAsState()
     val canSend = reason.isNotBlank() && description.isNotBlank()
-    val isSending = uiState is ReportClientUiState.Sending
+    val isSending = uiState is ReportClientUiStateSending
     val language = rememberAppLanguage()
 
     LaunchedEffect(uiState) {
-        if (uiState is ReportClientUiState.Sent) {
+        if (uiState is ReportClientUiStateSent) {
             navController.popBackStack()
         }
     }
@@ -87,9 +89,9 @@ fun ReportClientScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            if (uiState is ReportClientUiState.Error) {
+            if (uiState is ReportClientUiStateError) {
                 Text(
-                    text = (uiState as ReportClientUiState.Error).message,
+                    text = (uiState as ReportClientUiStateError).message,
                     color = Color.Red,
                     fontSize = 13.sp
                 )

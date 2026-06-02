@@ -28,6 +28,7 @@ class TokenManager(context: Context) {
             .remove(KEY_ACCESS_TOKEN)
             .remove(KEY_REFRESH_TOKEN)
             .remove(KEY_CURRENT_USERNAME)
+            .remove(KEY_CURRENT_USER_REMOTE_TOKEN)
             .apply()
     }
 
@@ -42,6 +43,12 @@ class TokenManager(context: Context) {
     }
 
     fun getCurrentUsername(): String? = prefs.getString(KEY_CURRENT_USERNAME, null)
+
+    fun setCurrentUserRemoteToken(token: String) {
+        prefs.edit().putString(KEY_CURRENT_USER_REMOTE_TOKEN, token).apply()
+    }
+
+    fun getCurrentUserRemoteToken(): String? = prefs.getString(KEY_CURRENT_USER_REMOTE_TOKEN, null)
 
     private fun migrateLegacyPrefs() {
         val hasLegacyData = LEGACY_KEYS.any { legacyPrefs.contains(it) }
@@ -67,11 +74,13 @@ class TokenManager(context: Context) {
         const val KEY_ACCESS_TOKEN = "ACCESS_TOKEN"
         const val KEY_REFRESH_TOKEN = "REFRESH_TOKEN"
         const val KEY_CURRENT_USERNAME = "CURRENT_USERNAME"
+        const val KEY_CURRENT_USER_REMOTE_TOKEN = "CURRENT_USER_REMOTE_TOKEN"
         const val KEY_IS_BOOTSTRAPPED = "IS_BOOTSTRAPPED"
         private val LEGACY_KEYS = listOf(
             KEY_ACCESS_TOKEN,
             KEY_REFRESH_TOKEN,
             KEY_CURRENT_USERNAME,
+            KEY_CURRENT_USER_REMOTE_TOKEN,
             KEY_IS_BOOTSTRAPPED
         )
 

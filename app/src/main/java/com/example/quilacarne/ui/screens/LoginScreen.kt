@@ -20,13 +20,15 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.quilacarne.MainActivity
-import com.example.quilacarne.data.repository.LoginSource
+import com.example.quilacarne.data.repository.auth.LoginSource
 import com.example.quilacarne.ui.components.QuiLaCarneHeader
 import com.example.quilacarne.ui.i18n.rememberAppLanguage
+import com.example.quilacarne.ui.state.LoginStateError
+import com.example.quilacarne.ui.state.LoginStateLoading
+import com.example.quilacarne.ui.state.LoginStateSuccess
 import com.example.quilacarne.ui.theme.green
 import com.example.quilacarne.ui.theme.lightGray
 import com.example.quilacarne.ui.viewmodels.LoginViewModel
-import com.example.quilacarne.ui.viewmodels.LoginState
 import kotlinx.coroutines.launch
 
 @Composable
@@ -40,17 +42,17 @@ fun LoginScreen(navController: NavController) {
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val loginState by loginViewModel.loginState.collectAsState()
-    val isLoginBusy = loginState is LoginState.Loading || keepLoginButtonLoading
+    val isLoginBusy = loginState is LoginStateLoading || keepLoginButtonLoading
     val language = rememberAppLanguage()
 
     LaunchedEffect(loginState) {
         when (loginState) {
-            is LoginState.Loading -> {
+            is LoginStateLoading -> {
                 keepLoginButtonLoading = true
             }
 
-            is LoginState.Success -> {
-                val successState = loginState as LoginState.Success
+            is LoginStateSuccess -> {
+                val successState = loginState as LoginStateSuccess
                 val hasBootstrapped = loginViewModel.hasBootstrapped()
 
                 if (hasBootstrapped) {
@@ -112,10 +114,10 @@ fun LoginScreen(navController: NavController) {
                 }
             }
 
-            is LoginState.Error -> {
+            is LoginStateError -> {
                 keepLoginButtonLoading = false
                 snackbarHostState.showSnackbar(
-                    (loginState as LoginState.Error).message
+                    (loginState as LoginStateError).message
                 )
             }
 

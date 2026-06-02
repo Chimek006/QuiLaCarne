@@ -9,5 +9,7 @@ data class DishSyncDto(
     @SerializedName("imageUrl") val imageUrl: String?,
     @SerializedName("categoryToken") val categoryToken: String?,
     @SerializedName("ingredientTokens") val ingredientTokens: List<String>?,
-    @SerializedName("isAvailable") val isAvailable: Boolean
+    @SerializedName(value = "isAvailable", alternate = ["available"]) val isAvailable: Boolean? = null,
+    @SerializedName(value = "isDeleted", alternate = ["deleted"]) val isDeleted: Boolean? = null,
+    @SerializedName("deletedAt") val deletedAt: String? = null
 )

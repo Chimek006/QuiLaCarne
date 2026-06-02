@@ -6,7 +6,7 @@ import com.example.quilacarne.data.local.AppDatabase
 import com.example.quilacarne.data.local.TokenManager
 import com.example.quilacarne.data.local.dao.TestDatabaseFactory
 import com.example.quilacarne.data.local.entities.UsersEntity
-import com.example.quilacarne.data.remote.network.RemoteTokenStore
+import com.example.quilacarne.data.remote.store.RemoteTokenStore
 import com.example.quilacarne.data.remote.network.RetrofitClient
 import com.example.quilacarne.utils.SecurePreferences
 import kotlinx.coroutines.test.runTest
@@ -85,10 +85,10 @@ class SyncRepositoryWebSocketSessionTest {
     }
 
     @Test
-    fun ignoresDeletedPersonnelEventForCurrentUser() = runTest {
+    fun clearsSessionForDeletedPersonnelEventForCurrentUser() = runTest {
         val user = insertCurrentUser(remoteToken = "remote-user-token")
 
-        val cleared = repository.clearCurrentSessionForPersonnelUpdateIfNeeded(
+        val reason = repository.clearCurrentSessionForAccountEventIfNeeded(
             topic = PERSONNEL_TOPIC,
             rawMessage = personnelEvent(
                 eventType = "DELETED",
@@ -97,7 +97,66 @@ class SyncRepositoryWebSocketSessionTest {
             )
         )
 
-        assertFalse(cleared)
+        assertEquals(SessionInvalidationReason.USER_DELETED, reason)
+        assertNull(tokenManager.getAccessToken())
+        assertNull(tokenManager.getRefreshToken())
+
+        val localUser = db.userDao().getUserByUsername(user.username)
+        assertEquals(false, localUser?.isActive)
+        assertTrue(localUser?.password.isNullOrBlank())
+        assertTrue(localUser?.deletedAt != null)
+    }
+
+    @Test
+    fun clearsSessionForActiveBanForCurrentUser() = runTest {
+        insertCurrentUser(remoteToken = "remote-user-token")
+
+        val reason = repository.clearCurrentSessionForAccountEventIfNeeded(
+            topic = BAN_TOPIC,
+            rawMessage = banEvent(userToken = "remote-user-token", isActive = true)
+        )
+
+        assertEquals(SessionInvalidationReason.USER_BANNED, reason)
+        assertNull(tokenManager.getAccessToken())
+        assertNull(tokenManager.getRefreshToken())
+        assertNull(tokenManager.getCurrentUsername())
+        assertNull(db.userDao().getUserByUsernameAndPassword("waiter@example.com", "secret"))
+
+        val localUser = db.userDao().getUserByUsername("waiter@example.com")
+        assertEquals(false, localUser?.isActive)
+        assertTrue(localUser?.password.isNullOrBlank())
+        assertTrue(localUser?.deletedAt != null)
+    }
+
+    @Test
+    fun clearsSessionForDeletedPersonnelEventUsingStoredCurrentUserToken() = runTest {
+        val user = insertCurrentUser(remoteToken = "remote-user-token", saveRemoteToken = false)
+        tokenManager.setCurrentUserRemoteToken("remote-user-token")
+
+        val reason = repository.clearCurrentSessionForAccountEventIfNeeded(
+            topic = PERSONNEL_TOPIC,
+            rawMessage = personnelEvent(
+                eventType = "DELETED",
+                token = "remote-user-token",
+                username = user.username
+            )
+        )
+
+        assertEquals(SessionInvalidationReason.USER_DELETED, reason)
+        assertNull(tokenManager.getAccessToken())
+        assertNull(tokenManager.getCurrentUserRemoteToken())
+    }
+
+    @Test
+    fun keepsSessionForInactiveBanForCurrentUser() = runTest {
+        insertCurrentUser(remoteToken = "remote-user-token")
+
+        val reason = repository.clearCurrentSessionForAccountEventIfNeeded(
+            topic = BAN_TOPIC,
+            rawMessage = banEvent(userToken = "remote-user-token", isActive = false)
+        )
+
+        assertNull(reason)
         assertEquals("access-token", tokenManager.getAccessToken())
         assertEquals("refresh-token", tokenManager.getRefreshToken())
     }
@@ -130,7 +189,10 @@ class SyncRepositoryWebSocketSessionTest {
         assertEquals("refresh-token", tokenManager.getRefreshToken())
     }
 
-    private suspend fun insertCurrentUser(remoteToken: String): UsersEntity {
+    private suspend fun insertCurrentUser(
+        remoteToken: String,
+        saveRemoteToken: Boolean = true
+    ): UsersEntity {
         val user = UsersEntity(
             id = UUID.nameUUIDFromBytes(remoteToken.toByteArray()),
             username = "waiter@example.com",
@@ -141,7 +203,9 @@ class SyncRepositoryWebSocketSessionTest {
             updatedAt = "2026-01-01T00:00:00Z"
         )
         db.userDao().insertUser(user)
-        remoteTokenStore.saveToken("user", user.id, remoteToken)
+        if (saveRemoteToken) {
+            remoteTokenStore.saveToken("user", user.id, remoteToken)
+        }
         tokenManager.saveTokens("access-token", "refresh-token")
         tokenManager.setCurrentUsername(user.username)
         return user
@@ -173,7 +237,34 @@ class SyncRepositoryWebSocketSessionTest {
         """.trimIndent()
     }
 
+    private fun banEvent(
+        eventType: String = "CREATED",
+        userToken: String,
+        isActive: Boolean
+    ): String {
+        return """
+            {
+              "eventType": "$eventType",
+              "entityType": "BAN",
+              "token": "ban-token",
+              "payload": {
+                "token": "ban-token",
+                "userToken": "$userToken",
+                "bannedByToken": "manager-token",
+                "statusTokens": ["ACTIVE"],
+                "reason": "test",
+                "expiresAt": null,
+                "isActive": $isActive,
+                "createdAt": "2026-01-01T00:00:00Z",
+                "updatedAt": "2026-01-01T00:00:00Z"
+              },
+              "timestamp": "2026-01-01T00:00:01Z"
+            }
+        """.trimIndent()
+    }
+
     private companion object {
         const val PERSONNEL_TOPIC = "/topic/personnel/updates"
+        const val BAN_TOPIC = "/topic/security/bans"
     }
 }

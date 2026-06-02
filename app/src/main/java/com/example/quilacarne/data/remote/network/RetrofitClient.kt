@@ -4,13 +4,13 @@ import android.content.Context
 import android.util.Log
 import com.example.quilacarne.BuildConfig
 import com.example.quilacarne.data.local.TokenManager
-import com.example.quilacarne.data.remote.api.AuthService
-import com.example.quilacarne.data.remote.api.TableService
-import com.example.quilacarne.data.remote.api.OrderService
+import com.example.quilacarne.data.remote.service.AuthService
+import com.example.quilacarne.data.remote.service.TableService
+import com.example.quilacarne.data.remote.service.OrderService
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
-import com.example.quilacarne.data.remote.api.DishService
+import com.example.quilacarne.data.remote.service.DishService
 
 object RetrofitClient {
     private val BASE_URL = BuildConfig.BASE_URL

@@ -12,8 +12,9 @@ import com.example.quilacarne.data.local.entities.OrderEntity
 import com.example.quilacarne.data.local.entities.OrderItemEntity
 import com.example.quilacarne.data.local.entities.RestaurantTableEntity
 import com.example.quilacarne.data.local.relations.OrderItemWithDish
-import com.example.quilacarne.data.repository.sync.ReservationAssignmentLogic
+import com.example.quilacarne.data.repository.sync.logic.ReservationAssignmentLogic
 import com.example.quilacarne.data.repository.sync.SyncRepository
+import com.example.quilacarne.ui.model.PendingOrderItem
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -402,12 +403,3 @@ class OrderAddViewModel(application: Application) : AndroidViewModel(application
         tableJob?.cancel()
     }
 }
-
-data class PendingOrderItem(
-    val sourceItemId: UUID?,
-    val dishId: UUID?,
-    val dish: DishEntity?,
-    val quantity: Int,
-    val priceAtTimeOfOrder: Int,
-    val note: String? = null
-)

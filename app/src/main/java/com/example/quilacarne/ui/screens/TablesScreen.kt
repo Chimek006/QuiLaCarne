@@ -26,8 +26,8 @@ import androidx.navigation.NavController
 import com.example.quilacarne.ui.components.QuiLaCarneHeader
 import com.example.quilacarne.ui.i18n.AppLanguage
 import com.example.quilacarne.ui.i18n.rememberAppLanguage
+import com.example.quilacarne.ui.state.TableUiState
 import com.example.quilacarne.ui.theme.*
-import com.example.quilacarne.ui.viewmodels.TableUiState
 import com.example.quilacarne.ui.viewmodels.TablesViewModel
 
 @Composable

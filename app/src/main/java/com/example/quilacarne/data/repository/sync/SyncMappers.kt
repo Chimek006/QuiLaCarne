@@ -9,6 +9,7 @@ import com.example.quilacarne.data.remote.dto.response.OrderSyncDto
 import com.example.quilacarne.data.remote.dto.response.ReservationSyncDto
 import com.example.quilacarne.data.remote.dto.response.TableDto
 import com.example.quilacarne.data.remote.dto.response.UserSyncDto
+import com.example.quilacarne.data.repository.sync.logic.TableStatusSyncLogic
 import com.example.quilacarne.utils.ReservationTimeUtils
 import java.text.SimpleDateFormat
 import java.util.Date

@@ -9,6 +9,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.example.quilacarne.data.local.dao.PendingRequestDao
 import com.example.quilacarne.data.local.entities.PendingRequestEntity
+import com.example.quilacarne.data.repository.sync.worker.PendingRequestWorker
 import com.google.gson.Gson
 import java.util.Locale
 import java.util.UUID

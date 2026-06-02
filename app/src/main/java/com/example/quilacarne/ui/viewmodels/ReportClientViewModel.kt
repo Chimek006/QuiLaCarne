@@ -5,6 +5,11 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.quilacarne.data.local.AppDatabase
 import com.example.quilacarne.data.repository.sync.SyncRepository
+import com.example.quilacarne.ui.state.ReportClientUiState
+import com.example.quilacarne.ui.state.ReportClientUiStateError
+import com.example.quilacarne.ui.state.ReportClientUiStateIdle
+import com.example.quilacarne.ui.state.ReportClientUiStateSending
+import com.example.quilacarne.ui.state.ReportClientUiStateSent
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -14,7 +19,7 @@ class ReportClientViewModel(application: Application) : AndroidViewModel(applica
     private val db = AppDatabase.getDatabase(application)
     private val syncRepository = SyncRepository(db, application.applicationContext)
 
-    private val _uiState = MutableStateFlow<ReportClientUiState>(ReportClientUiState.Idle)
+    private val _uiState = MutableStateFlow<ReportClientUiState>(ReportClientUiStateIdle)
     val uiState: StateFlow<ReportClientUiState> = _uiState
 
     fun submitReport(
@@ -23,16 +28,16 @@ class ReportClientViewModel(application: Application) : AndroidViewModel(applica
         description: String
     ) {
         viewModelScope.launch {
-            _uiState.value = ReportClientUiState.Sending
+            _uiState.value = ReportClientUiStateSending
 
             val payloadReason = buildReason(reason, description)
 
             syncRepository.createClientReportForTable(tableId, payloadReason)
                 .onSuccess {
-                    _uiState.value = ReportClientUiState.Sent
+                    _uiState.value = ReportClientUiStateSent
                 }
                 .onFailure { error ->
-                    _uiState.value = ReportClientUiState.Error(
+                    _uiState.value = ReportClientUiStateError(
                         error.message ?: "Nie udalo sie wyslac zgloszenia"
                     )
                 }
@@ -40,8 +45,8 @@ class ReportClientViewModel(application: Application) : AndroidViewModel(applica
     }
 
     fun consumeError() {
-        if (_uiState.value is ReportClientUiState.Error) {
-            _uiState.value = ReportClientUiState.Idle
+        if (_uiState.value is ReportClientUiStateError) {
+            _uiState.value = ReportClientUiStateIdle
         }
     }
 
@@ -51,11 +56,4 @@ class ReportClientViewModel(application: Application) : AndroidViewModel(applica
             .joinToString("\n\n")
             .take(500)
     }
-}
-
-sealed interface ReportClientUiState {
-    data object Idle : ReportClientUiState
-    data object Sending : ReportClientUiState
-    data object Sent : ReportClientUiState
-    data class Error(val message: String) : ReportClientUiState
 }

@@ -3,9 +3,11 @@ package com.example.quilacarne
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
@@ -22,19 +24,22 @@ import com.example.quilacarne.data.local.AppDatabase
 import com.example.quilacarne.data.local.TokenManager
 import com.example.quilacarne.data.remote.dto.request.LoginRequest
 import com.example.quilacarne.data.remote.network.NetworkMonitor
-import com.example.quilacarne.data.remote.network.OperationalSyncActions
-import com.example.quilacarne.data.remote.network.OperationalSyncCoordinator
-import com.example.quilacarne.data.remote.network.OperationalSyncNetworkCallbacks
-import com.example.quilacarne.data.remote.network.OperationalSyncSessionCallbacks
-import com.example.quilacarne.data.remote.network.RealtimeSyncCoordinator
-import com.example.quilacarne.data.remote.network.RealtimeSyncState
+import com.example.quilacarne.data.sync.coordinator.OperationalSyncActions
+import com.example.quilacarne.data.sync.coordinator.OperationalSyncCoordinator
+import com.example.quilacarne.data.sync.coordinator.OperationalSyncNetworkCallbacks
+import com.example.quilacarne.data.sync.coordinator.OperationalSyncSessionCallbacks
+import com.example.quilacarne.data.sync.coordinator.RealtimeSyncCoordinator
+import com.example.quilacarne.data.sync.coordinator.RealtimeSyncState
 import com.example.quilacarne.data.remote.network.RetrofitClient
+import com.example.quilacarne.data.repository.sync.SessionInvalidationReason
 import com.example.quilacarne.data.repository.sync.SyncRepository
 import com.example.quilacarne.ui.i18n.AppLanguageStore
 import com.example.quilacarne.ui.screens.*
 import com.example.quilacarne.ui.theme.QuiLaCarneTheme
 import com.example.quilacarne.ui.viewmodels.TablesViewModel
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
 import java.util.UUID
 import kotlin.concurrent.thread
@@ -43,9 +48,12 @@ class MainActivity : ComponentActivity() {
 
     private var operationalSyncCoordinator: OperationalSyncCoordinator? = null
     private var realtimeSyncCoordinator: RealtimeSyncCoordinator? = null
+    private val sessionInvalidationEvents =
+        MutableSharedFlow<SessionInvalidationReason>(extraBufferCapacity = 1)
 
     companion object {
         lateinit var networkMonitor: NetworkMonitor
+        private const val SESSION_TOKEN_CHECK_INTERVAL_MS = 1_000L
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -91,6 +99,45 @@ class MainActivity : ComponentActivity() {
 
                 val navController =
                     rememberNavController()
+                val sessionTokenManager =
+                    remember {
+                        TokenManager(applicationContext)
+                    }
+
+                LaunchedEffect(navController) {
+                    sessionInvalidationEvents.collect { reason ->
+                        showSessionInvalidationNotification(reason)
+                        navController.navigate("login") {
+                            popUpTo(navController.graph.startDestinationId) {
+                                inclusive = true
+                            }
+                            launchSingleTop = true
+                        }
+                    }
+                }
+
+                LaunchedEffect(navController, sessionTokenManager) {
+                    while (true) {
+                        delay(SESSION_TOKEN_CHECK_INTERVAL_MS)
+                        val currentRoute = navController.currentDestination?.route
+                        if (currentRoute != null &&
+                            currentRoute != "login" &&
+                            sessionTokenManager.getAccessToken().isNullOrBlank()
+                        ) {
+                            Toast.makeText(
+                                applicationContext,
+                                "Sesja wygasla albo konto zostalo usuniete z bazy danych.",
+                                Toast.LENGTH_LONG
+                            ).show()
+                            navController.navigate("login") {
+                                popUpTo(navController.graph.startDestinationId) {
+                                    inclusive = true
+                                }
+                                launchSingleTop = true
+                            }
+                        }
+                    }
+                }
 
                 DisposableEffect(navController) {
                     val listener = NavController.OnDestinationChangedListener { _, destination, _ ->
@@ -397,7 +444,10 @@ class MainActivity : ComponentActivity() {
                 isOnline = { networkMonitor.isOnline.value },
                 isServerAvailable = { networkMonitor.isServerAvailable.value },
                 isBootstrapped = { tokenManager.isBootstrapped() }
-            )
+            ),
+            onSessionInvalidated = { reason ->
+                sessionInvalidationEvents.tryEmit(reason)
+            }
         )
         realtimeSyncCoordinator = coordinator
 
@@ -420,6 +470,19 @@ class MainActivity : ComponentActivity() {
         } catch (e: Exception) {
             false
         }
+    }
+
+    private fun showSessionInvalidationNotification(reason: SessionInvalidationReason) {
+        val message = when (reason) {
+            SessionInvalidationReason.USER_BANNED ->
+                "Twoje konto zostalo zablokowane. Zaloguj sie ponownie po odblokowaniu."
+            SessionInvalidationReason.USER_DELETED ->
+                "Twoje konto zostalo usuniete lub dezaktywowane."
+            SessionInvalidationReason.USER_CHANGED ->
+                "Twoje konto zostalo zmienione. Zaloguj sie ponownie."
+        }
+
+        Toast.makeText(applicationContext, message, Toast.LENGTH_LONG).show()
     }
 
     private fun decodeNavArgument(value: String): String {
@@ -453,4 +516,5 @@ class MainActivity : ComponentActivity() {
             tokenManager.saveTokens(data.token, data.refreshToken)
         }
     }
+
 }

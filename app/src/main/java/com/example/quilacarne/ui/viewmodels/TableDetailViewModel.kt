@@ -25,9 +25,11 @@ import java.util.Date
 import java.util.Locale
 import java.util.UUID
 import com.example.quilacarne.data.local.AppDatabase
-import com.example.quilacarne.data.remote.network.RemoteTokenStore
+import com.example.quilacarne.data.remote.store.RemoteTokenStore
 import com.example.quilacarne.data.repository.sync.SyncRepository
-import com.example.quilacarne.data.repository.sync.TableDisplayStatusLogic
+import com.example.quilacarne.data.repository.sync.logic.TableDisplayStatusLogic
+import com.example.quilacarne.ui.logic.TableDetailOrderSelectionLogic
+import com.example.quilacarne.ui.model.TableDetailSnapshot
 import com.example.quilacarne.utils.ReservationTimeUtils
 
 class TableDetailViewModel(application: Application) : AndroidViewModel(application) {
@@ -286,11 +288,3 @@ class TableDetailViewModel(application: Application) : AndroidViewModel(applicat
         remoteSyncJob?.cancel()
     }
 }
-
-private data class TableDetailSnapshot(
-    val table: RestaurantTableEntity?,
-    val statuses: List<TableStatusEntity>,
-    val orders: List<OrderEntity>,
-    val users: List<UsersEntity>,
-    val reservations: List<ReservationEntity>
-)

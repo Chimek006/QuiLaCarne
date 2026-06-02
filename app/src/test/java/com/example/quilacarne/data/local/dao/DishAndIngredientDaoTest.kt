@@ -7,6 +7,8 @@ import com.example.quilacarne.data.local.entities.DishCompositionEntity
 import com.example.quilacarne.data.local.entities.DishEntity
 import com.example.quilacarne.data.local.entities.IngredientAllergenEntity
 import com.example.quilacarne.data.local.entities.IngredientEntity
+import com.example.quilacarne.data.remote.dto.response.DishSyncDto
+import com.google.gson.Gson
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -63,6 +65,60 @@ class DishAndIngredientDaoTest {
     }
 
     @Test
+    fun dishDaoHidesUnavailableDeletedAndDeletedNameDishes() = runTest {
+        val available = dish()
+        val unavailable = dish(
+            id = UUID.randomUUID(),
+            name = "Unavailable",
+            isAvailable = false
+        )
+        val deleted = dish(
+            id = UUID.randomUUID(),
+            name = "Deleted",
+            deletedAt = "deleted"
+        )
+        val deletedName = dish(
+            id = UUID.randomUUID(),
+            name = "DELETED_Carbonara"
+        )
+
+        db.dishDao().insertDishes(listOf(available, unavailable, deleted, deletedName))
+
+        assertEquals(listOf(available), db.dishDao().getAvailableDishes().first())
+    }
+
+    @Test
+    fun dishDaoMarksDishesMissingFromSyncAsDeleted() = runTest {
+        val synced = dish()
+        val missing = dish(id = UUID.randomUUID(), name = "Removed")
+
+        db.dishDao().insertDishes(listOf(synced, missing))
+        db.dishDao().markDishesDeletedExcept(listOf(synced.id), "deleted")
+
+        assertEquals(listOf(synced), db.dishDao().getAvailableDishes().first())
+    }
+
+    @Test
+    fun dishSyncDtoAcceptsAvailableAliasFromApi() {
+        val dto = Gson().fromJson(
+            """
+                {
+                  "token": "dish-token",
+                  "name": "Carbonara",
+                  "price": 4200,
+                  "available": true,
+                  "imageUrl": null,
+                  "categoryToken": null,
+                  "ingredientTokens": []
+                }
+            """.trimIndent(),
+            DishSyncDto::class.java
+        )
+
+        assertEquals(true, dto.isAvailable)
+    }
+
+    @Test
     fun ingredientDaoReturnsIngredientsAndAllergensOrderedByPolishName() = runTest {
         val ingredient = ingredient()
         val gluten = allergen(allergenId, "Gluten")
@@ -108,16 +164,22 @@ class DishAndIngredientDaoTest {
         assertEquals("Gluten", details?.ingredientsWithAllergens?.single()?.allergens?.single()?.namePl)
     }
 
-    private fun dish(): DishEntity {
+    private fun dish(
+        id: UUID = dishId,
+        name: String = "Carbonara",
+        isAvailable: Boolean = true,
+        deletedAt: String? = null
+    ): DishEntity {
         return DishEntity(
-            id = dishId,
+            id = id,
             categoryId = categoryId,
-            name = "Carbonara",
+            name = name,
             price = 4200,
-            isAvailable = true,
+            isAvailable = isAvailable,
             imageUrl = null,
             createdAt = "created",
-            updatedAt = "updated"
+            updatedAt = "updated",
+            deletedAt = deletedAt
         )
     }
 

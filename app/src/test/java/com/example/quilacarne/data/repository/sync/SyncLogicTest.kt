@@ -5,6 +5,12 @@ import com.example.quilacarne.data.local.entities.ReservationEntity
 import com.example.quilacarne.data.local.entities.isActiveForTable
 import com.example.quilacarne.data.local.entities.isOccupiedForTable
 import com.example.quilacarne.data.remote.dto.response.ApiResponse
+import com.example.quilacarne.data.repository.sync.logic.ApiResponseLogic
+import com.example.quilacarne.data.repository.sync.logic.PendingTableStatusLogic
+import com.example.quilacarne.data.repository.sync.logic.ReservationAssignmentLogic
+import com.example.quilacarne.data.repository.sync.logic.ReservationSelectionLogic
+import com.example.quilacarne.data.repository.sync.logic.TableDisplayStatusLogic
+import com.example.quilacarne.data.repository.sync.logic.TableStatusSyncLogic
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows

@@ -3,16 +3,16 @@ package com.example.quilacarne.ui.viewmodels
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.quilacarne.data.local.entities.OrderEntity
 import com.example.quilacarne.data.local.entities.ReservationEntity
 import com.example.quilacarne.data.local.entities.RestaurantTableEntity
 import com.example.quilacarne.data.local.entities.TableStatusEntity
-import com.example.quilacarne.data.local.entities.UsersEntity
 import com.example.quilacarne.data.local.entities.isInProgressForTable
 import com.example.quilacarne.data.local.entities.isOccupiedForTable
 import com.example.quilacarne.data.repository.sync.SyncRepository
-import com.example.quilacarne.data.repository.sync.TableDisplayStatusLogic
-import com.example.quilacarne.data.repository.sync.TableStatusSyncLogic
+import com.example.quilacarne.data.repository.sync.logic.TableDisplayStatusLogic
+import com.example.quilacarne.data.repository.sync.logic.TableStatusSyncLogic
+import com.example.quilacarne.ui.model.TableUiInput
+import com.example.quilacarne.ui.state.TableUiState
 import com.example.quilacarne.utils.ReservationTimeUtils
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -196,21 +196,3 @@ class TablesViewModel(private val repository: SyncRepository) : ViewModel() {
             ?: TableStatusSyncLogic.tableStatusNameEn(token)
     }
 }
-
-data class TableUiState(
-    val id: UUID,
-    val tableNumber: Int,
-    val statusToken: String,
-    val statusNamePl: String,
-    val statusNameEn: String,
-    val waiterName: String?,
-    val reservationTime: String?
-)
-
-private data class TableUiInput(
-    val tables: List<RestaurantTableEntity> = emptyList(),
-    val statuses: List<TableStatusEntity> = emptyList(),
-    val reservations: List<ReservationEntity> = emptyList(),
-    val orders: List<OrderEntity> = emptyList(),
-    val users: List<UsersEntity> = emptyList()
-)

@@ -47,4 +47,32 @@ class UserDaoTest {
         assertNotNull(db.userDao().getUserByUsernameAndPassword("WAITER@example.com", "secret"))
         assertNull(db.userDao().getUserByUsernameAndPassword("WAITER@example.com", "wrong"))
     }
+
+    @Test
+    fun doesNotAuthenticateInactiveOrDeletedUsersOffline() = runTest {
+        val inactiveUser = UsersEntity(
+            id = UUID.randomUUID(),
+            username = "inactive@example.com",
+            password = "secret",
+            isActive = false,
+            role = "waiter",
+            createdAt = "created",
+            updatedAt = "updated"
+        )
+        val deletedUser = UsersEntity(
+            id = UUID.randomUUID(),
+            username = "deleted@example.com",
+            password = "secret",
+            isActive = true,
+            role = "waiter",
+            createdAt = "created",
+            updatedAt = "updated",
+            deletedAt = "deleted"
+        )
+
+        db.userDao().insertUsers(listOf(inactiveUser, deletedUser))
+
+        assertNull(db.userDao().getUserByUsernameAndPassword("inactive@example.com", "secret"))
+        assertNull(db.userDao().getUserByUsernameAndPassword("deleted@example.com", "secret"))
+    }
 }

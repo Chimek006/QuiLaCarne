@@ -7,6 +7,7 @@ import com.example.quilacarne.MainActivity
 import com.example.quilacarne.data.local.TokenManager
 import com.example.quilacarne.data.remote.network.ConnectionIssue
 import com.example.quilacarne.data.remote.network.RetrofitClient
+import com.example.quilacarne.ui.state.MainUiState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -68,9 +69,3 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(message = null) }
     }
 }
-
-data class MainUiState(
-    val isLoggingOut: Boolean = false,
-    val isLoggedOut: Boolean = false,
-    val message: String? = null
-)

@@ -33,11 +33,11 @@ import com.example.quilacarne.ui.components.QuiLaCarneHeader
 import com.example.quilacarne.ui.i18n.AppLanguage
 import com.example.quilacarne.ui.i18n.localizedName
 import com.example.quilacarne.ui.i18n.rememberAppLanguage
+import com.example.quilacarne.ui.model.PendingOrderItem
 import com.example.quilacarne.ui.theme.green
 import com.example.quilacarne.ui.theme.lightGray
 import com.example.quilacarne.ui.theme.orange
 import com.example.quilacarne.ui.viewmodels.OrderAddViewModel
-import com.example.quilacarne.ui.viewmodels.PendingOrderItem
 import java.util.Locale
 import java.util.UUID
 
