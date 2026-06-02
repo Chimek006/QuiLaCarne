@@ -24,14 +24,25 @@ internal class MenuSyncHandler(
 ) {
     suspend fun syncMenu(): Result<Unit> = runCatching {
         val now = getCurrentTimestamp()
+        val dishDtos = fetchDishDtos()
         val categoryEntities = fetchCategoryEntities(now)
         val allergenNames = fetchAllergenNamesByToken()
         val ingredientSync = buildIngredientSync(fetchIngredientDtos(), allergenNames, now)
-        val dishSync = buildDishSync(fetchDishDtos(), now)
+        val dishSync = buildDishSync(dishDtos, now)
+        val fallbackCategories = missingDishCategoryFallbacks(
+            dishes = dishDtos,
+            knownCategories = categoryEntities,
+            now = now
+        )
+        val fallbackIngredients = missingDishIngredientFallbacks(
+            dishes = dishDtos,
+            knownIngredients = ingredientSync.first,
+            now = now
+        )
 
         database.withTransaction {
-            database.dishCategoryDao().insertAll(categoryEntities)
-            database.ingredientDao().insertIngredients(ingredientSync.first)
+            database.dishCategoryDao().insertAll(categoryEntities + fallbackCategories)
+            database.ingredientDao().insertIngredients(ingredientSync.first + fallbackIngredients)
             database.ingredientDao().insertAllergens(ingredientSync.second)
             database.ingredientDao().insertIngredientAllergens(ingredientSync.third)
             markDishesMissingFromSyncDeleted(dishSync.first.map { it.id }, now)
@@ -153,6 +164,50 @@ internal class MenuSyncHandler(
         }
 
         return Triple(ingredientEntities, allergenEntities, ingredientAllergenLinks)
+    }
+
+    private fun missingDishCategoryFallbacks(
+        dishes: List<DishSyncDto>,
+        knownCategories: List<DishCategoryEntity>,
+        now: String
+    ): List<DishCategoryEntity> {
+        val knownCategoryIds = knownCategories.map { it.id }.toSet()
+        return dishes
+            .mapNotNull { dish -> dish.categoryToken?.takeIf { it.isNotBlank() } }
+            .distinct()
+            .map { token -> token to token.toStableUUID() }
+            .filter { (_, categoryId) -> categoryId !in knownCategoryIds }
+            .map { (token, categoryId) ->
+                DishCategoryEntity(
+                    id = categoryId,
+                    namePl = token,
+                    nameEn = token,
+                    createdAt = now,
+                    updatedAt = now
+                )
+            }
+    }
+
+    private fun missingDishIngredientFallbacks(
+        dishes: List<DishSyncDto>,
+        knownIngredients: List<IngredientEntity>,
+        now: String
+    ): List<IngredientEntity> {
+        val knownIngredientIds = knownIngredients.map { it.id }.toSet()
+        return dishes
+            .flatMap { dish -> dish.ingredientTokens.orEmpty() }
+            .distinct()
+            .map { token -> token to token.toStableUUID() }
+            .filter { (_, ingredientId) -> ingredientId !in knownIngredientIds }
+            .map { (token, ingredientId) ->
+                IngredientEntity(
+                    id = ingredientId,
+                    namePl = token,
+                    nameEn = token,
+                    createdAt = now,
+                    updatedAt = now
+                )
+            }
     }
 
     private suspend fun buildDishSync(

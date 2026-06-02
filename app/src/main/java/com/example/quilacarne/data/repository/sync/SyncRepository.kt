@@ -31,6 +31,7 @@ import com.example.quilacarne.data.repository.sync.logic.ApiResponseLogic
 import com.example.quilacarne.data.repository.sync.logic.PendingTableStatusLogic
 import com.example.quilacarne.data.repository.sync.logic.ReservationAssignmentLogic
 import com.example.quilacarne.data.repository.sync.logic.ReservationSelectionLogic
+import com.example.quilacarne.data.repository.sync.logic.SyncForeignKeyGuard
 import com.example.quilacarne.data.repository.sync.logic.TableStatusSyncLogic
 import com.example.quilacarne.data.repository.sync.model.OccupyReservationSelection
 import com.example.quilacarne.data.repository.sync.model.OperationalSyncSnapshot
@@ -687,7 +688,27 @@ class SyncRepository(
 
     private suspend fun applyOrdersAndItemsSnapshot(snapshot: OrdersAndItemsSyncSnapshot) {
         val preservedLocalOrders = localReservationOrdersToPreserve(snapshot)
-        val ordersToKeep = snapshot.orders + preservedLocalOrders
+        val knownTableIds = database.restaurantTableDao()
+            .getAllTablesOnce()
+            .map { it.id }
+            .toSet()
+        val knownUserIds = database.userDao()
+            .getAllUsersOnce()
+            .map { it.id }
+            .toSet()
+        val knownDishIds = database.dishDao()
+            .getAllDishIdsOnce()
+            .toSet()
+        val ordersToKeep = SyncForeignKeyGuard.sanitizeOrders(
+            orders = snapshot.orders + preservedLocalOrders,
+            knownTableIds = knownTableIds,
+            knownUserIds = knownUserIds
+        )
+        val orderItemsToKeep = SyncForeignKeyGuard.filterOrderItems(
+            items = snapshot.orderItems,
+            knownOrderIds = ordersToKeep.map { it.id }.toSet(),
+            knownDishIds = knownDishIds
+        )
 
         if (ordersToKeep.isEmpty()) {
             database.orderDao().clearOrders()
@@ -696,11 +717,11 @@ class SyncRepository(
             database.orderDao().deleteOrdersExcept(ordersToKeep.map { it.id })
         }
 
-        if (snapshot.orderItems.isEmpty()) {
+        if (orderItemsToKeep.isEmpty()) {
             database.orderDao().clearOrderItems()
         } else {
-            database.orderDao().insertOrderItems(snapshot.orderItems)
-            database.orderDao().deleteOrderItemsExcept(snapshot.orderItems.map { it.id })
+            database.orderDao().insertOrderItems(orderItemsToKeep)
+            database.orderDao().deleteOrderItemsExcept(orderItemsToKeep.map { it.id })
         }
     }
 
@@ -759,12 +780,27 @@ class SyncRepository(
             .forEach { reservation -> tokenStore?.clearReservationWaiterId(reservation.token) }
     }
 
-    private fun persistOrderSnapshotTokens(snapshot: OrdersAndItemsSyncSnapshot) {
-        snapshot.orderTokens.forEach { token ->
+    private suspend fun persistOrderSnapshotTokens(snapshot: OrdersAndItemsSyncSnapshot) {
+        val persistedOrderIds = database.orderDao()
+            .getAllOrdersOnce()
+            .map { it.id }
+            .toSet()
+        val persistedOrderItemIds = database.orderDao()
+            .getAllOrdersOnce()
+            .flatMap { order -> database.orderDao().getItemsForOrderOnce(order.id) }
+            .map { it.id }
+            .toSet()
+
+        snapshot.orderTokens
+            .filter { token -> token.orderId in persistedOrderIds }
+            .forEach { token ->
             tokenStore?.saveToken("order", token.orderId, token.orderToken)
             tokenStore?.saveOrderReservationToken(token.orderId, token.reservationToken)
         }
-        snapshot.orderItemTokens.forEach { (orderItemId, token) ->
+
+        snapshot.orderItemTokens
+            .filter { (orderItemId, _) -> orderItemId in persistedOrderItemIds }
+            .forEach { (orderItemId, token) ->
             tokenStore?.saveToken("orderItem", orderItemId, token)
         }
     }
@@ -915,22 +951,33 @@ class SyncRepository(
             page++
         }
 
+        val knownTableIds = database.restaurantTableDao()
+            .getAllTablesOnce()
+            .map { it.id }
+            .toSet()
+        val reservationsToKeep = SyncForeignKeyGuard.filterReservationsByKnownTables(
+            reservations = syncedReservations,
+            knownTableIds = knownTableIds
+        )
+        val currentReservationsToKeep = currentReservationByTable
+            .filterKeys { tableId -> tableId in knownTableIds }
+
         database.withTransaction {
-            if (syncedReservations.isEmpty()) {
+            if (reservationsToKeep.isEmpty()) {
                 database.reservationDao().clearAll()
             } else {
-                database.reservationDao().insertAll(syncedReservations)
-                database.reservationDao().deleteReservationsExcept(syncedReservations.map { it.id })
+                database.reservationDao().insertAll(reservationsToKeep)
+                database.reservationDao().deleteReservationsExcept(reservationsToKeep.map { it.id })
             }
         }
 
-        currentReservationByTable.forEach { (tableId, reservation) ->
+        currentReservationsToKeep.forEach { (tableId, reservation) ->
             tokenStore?.saveTableReservationToken(tableId, reservation.token)
         }
 
         database.restaurantTableDao()
             .getAllTablesOnce()
-            .filter { it.id !in currentReservationByTable.keys }
+            .filter { it.id !in currentReservationsToKeep.keys }
             .forEach { table -> tokenStore?.clearTableReservationToken(table.id) }
     }
 
@@ -983,11 +1030,20 @@ class SyncRepository(
     }
 
     private suspend fun applyReservationsSnapshot(snapshot: ReservationsSyncSnapshot) {
-        if (snapshot.reservations.isEmpty()) {
+        val knownTableIds = database.restaurantTableDao()
+            .getAllTablesOnce()
+            .map { it.id }
+            .toSet()
+        val reservationsToKeep = SyncForeignKeyGuard.filterReservationsByKnownTables(
+            reservations = snapshot.reservations,
+            knownTableIds = knownTableIds
+        )
+
+        if (reservationsToKeep.isEmpty()) {
             database.reservationDao().clearAll()
         } else {
-            database.reservationDao().insertAll(snapshot.reservations)
-            database.reservationDao().deleteReservationsExcept(snapshot.reservations.map { it.id })
+            database.reservationDao().insertAll(reservationsToKeep)
+            database.reservationDao().deleteReservationsExcept(reservationsToKeep.map { it.id })
         }
     }
 
@@ -995,18 +1051,28 @@ class SyncRepository(
         snapshot: ReservationsSyncSnapshot,
         knownTableIds: List<UUID>
     ) {
-        snapshot.reservationTokens.forEach { token ->
-            tokenStore?.saveToken("reservation", token.reservationId, token.reservationToken)
-            tokenStore?.saveReservationUserToken(token.reservationToken, token.userToken)
-        }
-
-        snapshot.currentReservationTokensByTableId.forEach { (tableId, reservationToken) ->
-            tokenStore?.saveTableReservationToken(tableId, reservationToken)
-        }
-
+        val persistedReservationIds = database.reservationDao()
+            .getAllReservationsOnce()
+            .map { it.id }
+            .toSet()
         val tableIds = knownTableIds.ifEmpty {
             database.restaurantTableDao().getAllTablesOnce().map { it.id }
         }
+        val knownTableIdSet = tableIds.toSet()
+
+        snapshot.reservationTokens
+            .filter { token -> token.reservationId in persistedReservationIds }
+            .forEach { token ->
+                tokenStore?.saveToken("reservation", token.reservationId, token.reservationToken)
+                tokenStore?.saveReservationUserToken(token.reservationToken, token.userToken)
+            }
+
+        snapshot.currentReservationTokensByTableId
+            .filterKeys { tableId -> tableId in knownTableIdSet }
+            .forEach { (tableId, reservationToken) ->
+                tokenStore?.saveTableReservationToken(tableId, reservationToken)
+            }
+
         tableIds
             .filter { tableId -> tableId !in snapshot.currentReservationTokensByTableId.keys }
             .forEach { tableId -> tokenStore?.clearTableReservationToken(tableId) }

@@ -22,6 +22,12 @@ interface DishDao {
     )
     fun getDishWithIngredients(dishId: UUID): Flow<DishWithIngredients?>
 
+    @Query("SELECT * FROM dishes WHERE id = :dishId LIMIT 1")
+    suspend fun getDishByIdOnce(dishId: UUID): DishEntity?
+
+    @Query("SELECT id FROM dishes")
+    suspend fun getAllDishIdsOnce(): List<UUID>
+
     @Transaction
     @Query(
         "SELECT * FROM dishes " +

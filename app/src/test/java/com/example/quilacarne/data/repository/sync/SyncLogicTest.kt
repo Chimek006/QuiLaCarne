@@ -1,6 +1,7 @@
 package com.example.quilacarne.data.repository.sync
 
 import com.example.quilacarne.data.local.entities.OrderEntity
+import com.example.quilacarne.data.local.entities.OrderItemEntity
 import com.example.quilacarne.data.local.entities.ReservationEntity
 import com.example.quilacarne.data.local.entities.isActiveForTable
 import com.example.quilacarne.data.local.entities.isOccupiedForTable
@@ -9,6 +10,7 @@ import com.example.quilacarne.data.repository.sync.logic.ApiResponseLogic
 import com.example.quilacarne.data.repository.sync.logic.PendingTableStatusLogic
 import com.example.quilacarne.data.repository.sync.logic.ReservationAssignmentLogic
 import com.example.quilacarne.data.repository.sync.logic.ReservationSelectionLogic
+import com.example.quilacarne.data.repository.sync.logic.SyncForeignKeyGuard
 import com.example.quilacarne.data.repository.sync.logic.TableDisplayStatusLogic
 import com.example.quilacarne.data.repository.sync.logic.TableStatusSyncLogic
 import org.junit.Assert.assertEquals
@@ -350,6 +352,58 @@ class SyncLogicTest {
     }
 
     @Test
+    fun foreignKeyGuardKeepsOnlyReservationsWithKnownTables() {
+        val knownTableId = UUID.randomUUID()
+        val missingTableId = UUID.randomUUID()
+        val kept = reservation(statusTokens = "ACTIVE").copy(tableId = knownTableId)
+        val skipped = reservation(statusTokens = "ACTIVE").copy(tableId = missingTableId)
+
+        val result = SyncForeignKeyGuard.filterReservationsByKnownTables(
+            reservations = listOf(kept, skipped),
+            knownTableIds = setOf(knownTableId)
+        )
+
+        assertEquals(listOf(kept.id), result.map { it.id })
+    }
+
+    @Test
+    fun foreignKeyGuardDropsOrdersWithoutKnownTablesAndClearsMissingWaiters() {
+        val knownTableId = UUID.randomUUID()
+        val knownWaiterId = UUID.randomUUID()
+        val missingWaiterId = UUID.randomUUID()
+        val orderWithKnownWaiter = order("PENDING", knownWaiterId).copy(tableId = knownTableId)
+        val orderWithMissingWaiter = order("PENDING", missingWaiterId).copy(tableId = knownTableId)
+        val orderWithMissingTable = order("PENDING", knownWaiterId).copy(tableId = UUID.randomUUID())
+
+        val result = SyncForeignKeyGuard.sanitizeOrders(
+            orders = listOf(orderWithKnownWaiter, orderWithMissingWaiter, orderWithMissingTable),
+            knownTableIds = setOf(knownTableId),
+            knownUserIds = setOf(knownWaiterId)
+        )
+
+        assertEquals(listOf(orderWithKnownWaiter.id, orderWithMissingWaiter.id), result.map { it.id })
+        assertEquals(knownWaiterId, result[0].waiterId)
+        assertNull(result[1].waiterId)
+    }
+
+    @Test
+    fun foreignKeyGuardDropsOrderItemsWithoutKnownOrdersOrDishes() {
+        val knownOrderId = UUID.randomUUID()
+        val knownDishId = UUID.randomUUID()
+        val kept = orderItem(orderId = knownOrderId, dishId = knownDishId)
+        val missingOrder = orderItem(orderId = UUID.randomUUID(), dishId = knownDishId)
+        val missingDish = orderItem(orderId = knownOrderId, dishId = UUID.randomUUID())
+
+        val result = SyncForeignKeyGuard.filterOrderItems(
+            items = listOf(kept, missingOrder, missingDish),
+            knownOrderIds = setOf(knownOrderId),
+            knownDishIds = setOf(knownDishId)
+        )
+
+        assertEquals(listOf(kept.id), result.map { it.id })
+    }
+
+    @Test
     fun displayStatusAllowsAvailableAfterSyncCompletes() {
         assertEquals(
             "AVAILABLE",
@@ -446,6 +500,21 @@ class SyncLogicTest {
             endEpochMillis = 2_000L,
             statusTokens = statusTokens,
             isActive = true,
+            createdAt = "created",
+            updatedAt = "updated"
+        )
+    }
+
+    private fun orderItem(
+        orderId: UUID,
+        dishId: UUID?
+    ): OrderItemEntity {
+        return OrderItemEntity(
+            id = UUID.randomUUID(),
+            orderId = orderId,
+            productId = dishId,
+            quantity = 1,
+            priceAtTimeOfOrder = 100,
             createdAt = "created",
             updatedAt = "updated"
         )

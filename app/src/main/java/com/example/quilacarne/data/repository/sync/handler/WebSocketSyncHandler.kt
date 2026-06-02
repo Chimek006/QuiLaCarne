@@ -29,6 +29,7 @@ import com.example.quilacarne.data.repository.sync.PendingRequestRepository
 import com.example.quilacarne.data.repository.sync.currentStatusToken
 import com.example.quilacarne.data.repository.sync.getCurrentTimestamp
 import com.example.quilacarne.data.repository.sync.logic.PendingTableStatusLogic
+import com.example.quilacarne.data.repository.sync.logic.SyncForeignKeyGuard
 import com.example.quilacarne.data.repository.sync.logic.TableStatusSyncLogic
 import com.example.quilacarne.data.repository.sync.toOrderEntity
 import com.example.quilacarne.data.repository.sync.toOrderItemEntity
@@ -186,6 +187,11 @@ internal class WebSocketSyncHandler(
 
     private suspend fun upsertReservationFromWebSocket(dto: ReservationSyncDto) {
         val entity = dto.toReservationEntity()
+        if (database.restaurantTableDao().getTableByIdOnce(entity.tableId) == null) {
+            Log.w("QLC_WS_EVENT", "Skipping reservation ${dto.token}; missing table ${dto.tableToken}")
+            return
+        }
+
         database.reservationDao().insertAll(listOf(entity))
         storeReservationTokens(dto)
         if (ReservationTimeUtils.isCurrent(entity, System.currentTimeMillis())) {
@@ -195,13 +201,31 @@ internal class WebSocketSyncHandler(
 
     private suspend fun upsertOrderFromWebSocket(dto: OrderSyncDto) {
         val entity = dto.toOrderEntity()
+        val knownTableIds = database.restaurantTableDao()
+            .getAllTablesOnce()
+            .map { it.id }
+            .toSet()
+        val knownUserIds = database.userDao()
+            .getAllUsersOnce()
+            .map { it.id }
+            .toSet()
+        val sanitizedOrder = SyncForeignKeyGuard.sanitizeOrders(
+            orders = listOf(entity),
+            knownTableIds = knownTableIds,
+            knownUserIds = knownUserIds
+        ).firstOrNull()
+        if (sanitizedOrder == null) {
+            Log.w("QLC_WS_EVENT", "Skipping order ${dto.token}; missing table ${dto.tableToken}")
+            return
+        }
+
         val order = if (
-            entity.waiterId != null &&
-            entity.tableId?.let { tableId -> isTableReleased(tableId) } == true
+            sanitizedOrder.waiterId != null &&
+            sanitizedOrder.tableId?.let { tableId -> isTableReleased(tableId) } == true
         ) {
-            entity.copy(waiterId = null)
+            sanitizedOrder.copy(waiterId = null)
         } else {
-            entity
+            sanitizedOrder
         }
         database.orderDao().insertOrder(order)
         tokenStore?.saveToken("order", entity.id, dto.token)
@@ -210,6 +234,19 @@ internal class WebSocketSyncHandler(
 
     private suspend fun upsertOrderItemFromWebSocket(dto: OrderItemSyncDto) {
         val entity = dto.toOrderItemEntity()
+        val orderExists = database.orderDao()
+            .getAllOrdersOnce()
+            .any { order -> order.id == entity.orderId }
+        val dishExists = entity.productId == null ||
+            database.dishDao().getDishByIdOnce(entity.productId) != null
+        if (!orderExists || !dishExists) {
+            Log.w(
+                "QLC_WS_EVENT",
+                "Skipping order item ${dto.token}; orderExists=$orderExists dishExists=$dishExists"
+            )
+            return
+        }
+
         database.orderDao().insertOrderItem(entity)
         tokenStore?.saveToken("orderItem", entity.id, dto.token)
     }
@@ -336,9 +373,14 @@ internal class WebSocketSyncHandler(
         val now = getCurrentTimestamp()
         val statusToken = dto.statusTokens.firstOrNull { it.isNotBlank() }
         val statusId = statusToken?.toStableUUID()
+        val reporterId = dto.reporterToken
+            ?.toStableUUID()
+            ?.takeIf { userId ->
+                database.userDao().getAllUsersOnce().any { user -> user.id == userId }
+            }
         val report = GuestReportEntity(
             id = dto.token.toStableUUID(),
-            reporterId = dto.reporterToken?.toStableUUID(),
+            reporterId = reporterId,
             statusId = statusId,
             reason = dto.reason,
             createdAt = dto.createdAt,
